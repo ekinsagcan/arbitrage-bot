@@ -15,158 +15,144 @@ EXCHANGES = {
     "CoinEx": "https://api.coinex.com/v1/market/ticker/all",
     "LBank": "https://api.lbank.info/v2/ticker.do?symbol=all",
     "Gate.io": "https://api.gate.io/api2/1/tickers",
-    "Bitfinex": "https://api-pub.bitfinex.com/v2/tickers?symbols=ALL",
+    "Bitfinex": "https://api.bitfinex.com/v1/pubticker/",
     "Poloniex": "https://api.poloniex.com/markets/ticker24h",
-    "Bitstamp_products": "https://www.bitstamp.net/api/v2/trading-pairs-info/",
-    "Bitstamp_ticker_base": "https://www.bitstamp.net/api/v2/ticker/",
-    "Coinbase_products": "https://api.exchange.coinbase.com/products"
+    "Bitstamp": "https://www.bitstamp.net/api/v2/ticker/",
+    "Coinbase": "https://api.exchange.coinbase.com/products/{pair}/ticker"
 }
 
-def normalize_symbol(sym):
-    return sym.replace("-", "").replace("_", "").replace("/", "").upper()
+def normalize_symbol(symbol):
+    return symbol.replace("-", "").replace("_", "").replace("/", "").upper()
 
-def fetch_all_prices():
+async def fetch_all_prices():
     coins_by_exchange = {}
-
     for name, url in EXCHANGES.items():
         try:
             coins = {}
-
             if name == "Binance":
                 data = requests.get(url).json()
-                for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["price"])
-                    coins[symbol] = price
+                if isinstance(data, list):
+                    for item in data:
+                        symbol = item.get("symbol", "").upper()
+                        price = item.get("price")
+                        if price:
+                            coins[symbol] = float(price)
 
             elif name == "OKX":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = normalize_symbol(item["instId"])
-                    price = float(item["last"])
-                    coins[symbol] = price
+                    raw_price = item.get("last")
+                    if raw_price:
+                        symbol = normalize_symbol(item.get("instId", ""))
+                        coins[symbol] = float(raw_price)
 
             elif name == "KuCoin":
                 data = requests.get(url).json().get("data", {}).get("ticker", [])
                 for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["last"])
-                    coins[symbol] = price
+                    raw_price = item.get("last")
+                    if raw_price:
+                        symbol = normalize_symbol(item.get("symbol", ""))
+                        coins[symbol] = float(raw_price)
 
             elif name == "Bybit":
-                data = requests.get(url).json().get("result", {}).get("list", [])
-                for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["lastPrice"])
-                    coins[symbol] = price
+                response = requests.get(url)
+                if response.headers.get("Content-Type", "").startswith("application/json"):
+                    data = response.json().get("result", {}).get("list", [])
+                    for item in data:
+                        raw_price = item.get("lastPrice")
+                        if raw_price:
+                            symbol = item.get("symbol", "").upper()
+                            coins[symbol] = float(raw_price)
 
             elif name == "MEXC":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["price"])
-                    coins[symbol] = price
+                    raw_price = item.get("price")
+                    if raw_price:
+                        symbol = item.get("symbol", "").upper()
+                        coins[symbol] = float(raw_price)
 
             elif name == "Bitget":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["last"])
-                    coins[symbol] = price
+                    raw_price = item.get("last")
+                    if raw_price:
+                        symbol = normalize_symbol(item.get("symbol", ""))
+                        coins[symbol] = float(raw_price)
 
             elif name == "CoinEx":
                 data = requests.get(url).json().get("data", {})
                 for symbol, item in data.items():
-                    symbol_norm = normalize_symbol(symbol)
-                    price = float(item["last"])
-                    coins[symbol_norm] = price
+                    raw_price = item.get("last")
+                    if raw_price:
+                        coins[symbol.upper()] = float(raw_price)
 
             elif name == "LBank":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["ticker"]["latest"])
-                    coins[symbol] = price
+                    raw_price = item.get("ticker", {}).get("latest")
+                    if raw_price:
+                        symbol = item.get("symbol", "").upper()
+                        coins[symbol] = float(raw_price)
 
             elif name == "Gate.io":
-                data = requests.get(url).json()
-                for symbol, item in data.items():
-                    symbol_norm = normalize_symbol(symbol)
-                    price = float(item["last"])
-                    coins[symbol_norm] = price
+                try:
+                    data = requests.get(url, verify=False).json()
+                    for symbol, item in data.items():
+                        raw_price = item.get("last")
+                        if raw_price:
+                            coins[symbol.upper()] = float(raw_price)
+                except Exception as e:
+                    print(f"[SSL Error] Gate.io: {e}")
 
             elif name == "Bitfinex":
-                data = requests.get(url).json()
-                for item in data:
-                    symbol_raw = item[0]
-                    if symbol_raw.startswith("t") and len(symbol_raw) > 1:
-                        symbol = normalize_symbol(symbol_raw[1:])
-                        price = float(item[7])
-                        coins[symbol] = price
+                for pair in ["btcusd", "ethusd", "solusd"]:
+                    try:
+                        full_url = url + pair
+                        data = requests.get(full_url).json()
+                        price = data.get("last_price")
+                        if price:
+                            symbol = pair.upper()
+                            coins[symbol] = float(price)
+                    except:
+                        continue
 
             elif name == "Poloniex":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol = normalize_symbol(item["symbol"])
-                    price = float(item["last"])
-                    coins[symbol] = price
+                    raw_price = item.get("last")
+                    if raw_price:
+                        symbol = normalize_symbol(item.get("symbol", ""))
+                        coins[symbol] = float(raw_price)
 
-            elif name == "Bitstamp_products":
-                coins_by_exchange["Bitstamp_products"] = url
+            elif name == "Bitstamp":
+                for pair in ["btcusd", "ethusd"]:
+                    try:
+                        full_url = url + pair + "/"
+                        data = requests.get(full_url).json()
+                        price = data.get("last")
+                        if price:
+                            coins[pair.upper()] = float(price)
+                    except:
+                        continue
 
-            elif name == "Bitstamp_ticker_base":
-                coins_by_exchange["Bitstamp_ticker_base"] = url
+            elif name == "Coinbase":
+                for pair in ["BTC-USD", "ETH-USD"]:
+                    try:
+                        full_url = url.replace("{pair}", pair)
+                        data = requests.get(full_url).json()
+                        price = data.get("price")
+                        if price:
+                            coins[pair.replace("-", "").upper()] = float(price)
+                    except:
+                        continue
 
-            elif name == "Coinbase_products":
-                coins_by_exchange["Coinbase_products"] = url
-
-            else:
-                pass
-
-            if name not in ["Bitstamp_products", "Bitstamp_ticker_base", "Coinbase_products"]:
-                coins_by_exchange[name] = coins
-
+            coins_by_exchange[name] = coins
         except Exception as e:
-            print(f"[Error] {name} API: {e}")
-
-    try:
-        products_url = coins_by_exchange.get("Bitstamp_products")
-        ticker_base_url = coins_by_exchange.get("Bitstamp_ticker_base")
-        if products_url and ticker_base_url:
-            products = requests.get(products_url).json()
-            coins = {}
-            for product in products:
-                symbol = normalize_symbol(product['name'])
-                ticker_url = f"{ticker_base_url}{product['url_symbol']}/"
-                ticker_data = requests.get(ticker_url).json()
-                price = float(ticker_data.get("last", 0))
-                coins[symbol] = price
-            coins_by_exchange["Bitstamp"] = coins
-            del coins_by_exchange["Bitstamp_products"]
-            del coins_by_exchange["Bitstamp_ticker_base"]
-    except Exception as e:
-        print(f"[Error] Bitstamp tickers: {e}")
-
-    try:
-        products_url = coins_by_exchange.get("Coinbase_products")
-        if products_url:
-            products = requests.get(products_url).json()
-            coins = {}
-            for product in products:
-                if product['quote_currency'] == "USD":
-                    symbol = normalize_symbol(product['base_currency'] + product['quote_currency'])
-                    ticker_url = f"https://api.exchange.coinbase.com/products/{product['id']}/ticker"
-                    ticker_data = requests.get(ticker_url).json()
-                    price = float(ticker_data.get("price", 0))
-                    coins[symbol] = price
-            coins_by_exchange["Coinbase"] = coins
-            del coins_by_exchange["Coinbase_products"]
-    except Exception as e:
-        print(f"[Error] Coinbase tickers: {e}")
-
+            print(f"Error fetching from {name}: {e}")
     return coins_by_exchange
 
-def find_top_arbitrage_opportunities(coins_by_exchange, top_n=10):
+def find_top_arbitrage_opportunities(coins_by_exchange, top_n=5):
     merged = {}
     for exchange, coins in coins_by_exchange.items():
         for symbol, price in coins.items():
@@ -188,29 +174,3 @@ def find_top_arbitrage_opportunities(coins_by_exchange, top_n=10):
     opportunities.sort(key=lambda x: x[4], reverse=True)
     return opportunities[:top_n]
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Welcome! Use /top to see the top arbitrage opportunities across many exchanges."
-    )
-
-async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Fetching data, please wait...")
-    coins_by_exchange = await asyncio.to_thread(fetch_all_prices)
-    top_opps = find_top_arbitrage_opportunities(coins_by_exchange)
-
-    if not top_opps:
-        await update.message.reply_text("No arbitrage opportunities found.")
-        return
-
-    message = "\U0001F4CA Top Arbitrage Opportunities:\n\n"
-    for i, (symbol, low, high, diff, percent) in enumerate(top_opps, start=1):
-        message += (
-            f"{i}. {symbol} → {low[0]}: {low[1]:.6f} → {high[0]}: {high[1]:.6f} → Diff: {diff:.6f} ({percent:.2f}%)\n"
-        )
-    await update.message.reply_text(message)
-
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("top", top))
-    app.run_polling()

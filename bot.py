@@ -143,7 +143,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # BOT SETUP
 # ======================
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA).build()
+    app = ApplicationBuilder().token("7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA").build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.run_polling()

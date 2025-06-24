@@ -3,14 +3,8 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ======================
-# CONFIGURATION
-# ======================
 BOT_TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"
 
-# ======================
-# EXCHANGE ENDPOINTS
-# ======================
 EXCHANGES = {
     "Binance": "https://api.binance.com/api/v3/ticker/price",
     "OKX": "https://www.okx.com/api/v5/market/tickers?instType=SPOT",
@@ -31,10 +25,7 @@ EXCHANGES = {
 def normalize_symbol(sym):
     return sym.replace("-", "").replace("_", "").replace("/", "").upper()
 
-# ======================
-# FETCH ALL PRICES
-# ======================
-async def fetch_all_prices():
+def fetch_all_prices():
     coins_by_exchange = {}
 
     for name, url in EXCHANGES.items():
@@ -130,16 +121,14 @@ async def fetch_all_prices():
                 coins_by_exchange["Coinbase_products"] = url
 
             else:
-                # Unknown exchange, skip
                 pass
 
             if name not in ["Bitstamp_products", "Bitstamp_ticker_base", "Coinbase_products"]:
                 coins_by_exchange[name] = coins
 
         except Exception as e:
-            print(f"Error fetching from {name}: {e}")
+            print(f"[Error] {name} API: {e}")
 
-    # Bitstamp ürün listesi ve fiyatları çek
     try:
         products_url = coins_by_exchange.get("Bitstamp_products")
         ticker_base_url = coins_by_exchange.get("Bitstamp_ticker_base")
@@ -156,9 +145,8 @@ async def fetch_all_prices():
             del coins_by_exchange["Bitstamp_products"]
             del coins_by_exchange["Bitstamp_ticker_base"]
     except Exception as e:
-        print(f"Error fetching Bitstamp tickers: {e}")
+        print(f"[Error] Bitstamp tickers: {e}")
 
-    # Coinbase ürün listesi ve fiyatları çek
     try:
         products_url = coins_by_exchange.get("Coinbase_products")
         if products_url:
@@ -174,13 +162,10 @@ async def fetch_all_prices():
             coins_by_exchange["Coinbase"] = coins
             del coins_by_exchange["Coinbase_products"]
     except Exception as e:
-        print(f"Error fetching Coinbase tickers: {e}")
+        print(f"[Error] Coinbase tickers: {e}")
 
     return coins_by_exchange
 
-# ======================
-# FIND TOP OPPORTUNITIES
-# ======================
 def find_top_arbitrage_opportunities(coins_by_exchange, top_n=10):
     merged = {}
     for exchange, coins in coins_by_exchange.items():
@@ -203,9 +188,6 @@ def find_top_arbitrage_opportunities(coins_by_exchange, top_n=10):
     opportunities.sort(key=lambda x: x[4], reverse=True)
     return opportunities[:top_n]
 
-# ======================
-# BOT COMMANDS
-# ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Welcome! Use /top to see the top arbitrage opportunities across many exchanges."
@@ -213,7 +195,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Fetching data, please wait...")
-    coins_by_exchange = await fetch_all_prices()
+    coins_by_exchange = await asyncio.to_thread(fetch_all_prices)
     top_opps = find_top_arbitrage_opportunities(coins_by_exchange)
 
     if not top_opps:
@@ -227,9 +209,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await update.message.reply_text(message)
 
-# ======================
-# BOT SETUP
-# ======================
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))

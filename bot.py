@@ -1,92 +1,149 @@
 import requests
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ✅ Coin butonları burada tanımlanır
-POPULAR_COINS = [
-    ("Bitcoin", "bitcoin"),
-    ("Ethereum", "ethereum"),
-    ("Solana", "solana"),
-    ("Dogecoin", "dogecoin"),
-    ("BNB", "binancecoin"),
-    ("Pepe", "pepe")
-]
+# ======================
+# CONFIGURATION
+# ======================
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"  # Replace with your actual token
+COMMON_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"]
 
-# CoinGecko'dan fiyat verisi çeker
-def get_prices(symbol="bitcoin"):
-    url = f"https://api.coingecko.com/api/v3/coins/{symbol}/tickers?per_page=100&page=1"
-    response = requests.get(url)
+# ======================
+# EXCHANGE ENDPOINTS
+# ======================
+EXCHANGES = {
+    "Binance": "https://api.binance.com/api/v3/ticker/price",
+    "OKX": "https://www.okx.com/api/v5/market/tickers?instType=SPOT",
+    "KuCoin": "https://api.kucoin.com/api/v1/market/allTickers",
+    "Bybit": "https://api.bybit.com/v5/market/tickers?category=spot",
+    "MEXC": "https://api.mexc.com/api/v3/ticker/price",
+    "Bitget": "https://api.bitget.com/api/spot/v1/market/tickers",
+    "Gate.io": "https://api.gate.io/api2/1/tickers",
+    "CoinEx": "https://api.coinex.com/v1/market/ticker/all",
+    "LBank": "https://api.lbank.info/v2/ticker.do?symbol=all"
+}
 
-    if response.status_code == 404:
-        raise Exception(f"❌ Coin '{symbol}' not found.")
-    if response.status_code != 200:
-        raise Exception("❌ Failed to retrieve data from CoinGecko.")
-
-    data = response.json()
-    if "tickers" not in data or not data["tickers"]:
-        raise Exception("⚠️ No price data available.")
-
+# ======================
+# FETCH PRICE FUNCTIONS
+# ======================
+async def fetch_prices(symbol):
+    symbol = symbol.upper()
     prices = []
-    for ticker in data["tickers"]:
-        market = ticker.get("market", {}).get("name", "Unknown")
-        base = ticker.get("base", "")
-        target = ticker.get("target", "")
-        pair = f"{base}/{target}"
-        price = ticker.get("last", 0.0)
 
-        if price:
-            prices.append((market, pair, price))
+    for name, url in EXCHANGES.items():
+        try:
+            if name == "Binance":
+                r = requests.get(url)
+                data = r.json()
+                for item in data:
+                    if item["symbol"] == symbol:
+                        prices.append((name, float(item["price"])))
+
+            elif name == "OKX":
+                r = requests.get(url)
+                data = r.json()["data"]
+                for item in data:
+                    if item["instId"].replace("-", "") == symbol:
+                        prices.append((name, float(item["last"])))
+
+            elif name == "KuCoin":
+                r = requests.get(url)
+                data = r.json()["data"]["ticker"]
+                for item in data:
+                    if item["symbol"].replace("-", "") == symbol:
+                        prices.append((name, float(item["last"])))
+
+            elif name == "Bybit":
+                r = requests.get(url)
+                data = r.json()["result"]["list"]
+                for item in data:
+                    if item["symbol"] == symbol:
+                        prices.append((name, float(item["lastPrice"])))
+
+            elif name == "MEXC":
+                r = requests.get(url)
+                data = r.json()
+                for item in data:
+                    if item["symbol"] == symbol:
+                        prices.append((name, float(item["price"])))
+
+            elif name == "Bitget":
+                r = requests.get(url)
+                data = r.json()["data"]
+                for item in data:
+                    if item["symbol"].replace("_", "") == symbol:
+                        prices.append((name, float(item["last"])))
+
+            elif name == "Gate.io":
+                r = requests.get(url)
+                data = r.json()
+                if symbol in data:
+                    prices.append((name, float(data[symbol]["last"])))
+
+            elif name == "CoinEx":
+                r = requests.get(url)
+                data = r.json()["data"]
+                if symbol in data:
+                    prices.append((name, float(data[symbol]["last"])))
+
+            elif name == "LBank":
+                r = requests.get(url)
+                data = r.json()["data"]
+                for item in data:
+                    if item["symbol"].upper() == symbol:
+                        prices.append((name, float(item["ticker"]["latest"])))
+
+        except Exception as e:
+            print(f"Error fetching from {name}: {e}")
 
     return prices
 
-# /start komutu - tanıtım + butonlar
+# ======================
+# BOT COMMANDS
+# ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "👋 Welcome! I'm your *Crypto Arbitrage Bot*.\n\n"
-        "📊 I scan 100+ exchanges and show where to buy low & sell high.\n\n"
-        "💡 Select a coin below to see arbitrage opportunities:"
-    )
-
-    # Butonları oluştur
     buttons = [
-        [InlineKeyboardButton(name, callback_data=symbol)]
-        for name, symbol in POPULAR_COINS
+        [InlineKeyboardButton(pair, callback_data=pair)]
+        for pair in COMMON_PAIRS
     ]
     keyboard = InlineKeyboardMarkup(buttons)
 
-    await update.message.reply_text(message, reply_markup=keyboard, parse_mode="Markdown")
+    text = (
+        "👋 Welcome to the Multi-Exchange Arbitrage Bot!\n\n"
+        "Select a trading pair below to see real-time arbitrage opportunities across major crypto exchanges."
+    )
+    await update.message.reply_text(text, reply_markup=keyboard)
 
-# Butona basıldığında çalışır
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     symbol = query.data
 
-    try:
-        prices = get_prices(symbol)
-        prices_sorted = sorted(prices, key=lambda x: x[2])
-        lowest = prices_sorted[0]
-        highest = prices_sorted[-1]
+    prices = await fetch_prices(symbol)
+    if not prices:
+        await query.edit_message_text(f"❌ No data found for {symbol}")
+        return
 
-        diff = highest[2] - lowest[2]
-        percent = (diff / lowest[2]) * 100
+    prices.sort(key=lambda x: x[1])
+    lowest = prices[0]
+    highest = prices[-1]
+    diff = highest[1] - lowest[1]
+    percent = (diff / lowest[1]) * 100 if lowest[1] else 0
 
-        message = (
-            f"📈 *Arbitrage Opportunity for {symbol.upper()}*:\n\n"
-            f"🔻 Lowest Price: {lowest[0]} - {lowest[2]:.4f} ({lowest[1]})\n"
-            f"🔺 Highest Price: {highest[0]} - {highest[2]:.4f} ({highest[1]})\n\n"
-            f"📊 Difference: {diff:.4f} ({percent:.2f}%)"
-        )
+    message = (
+        f"📊 *Arbitrage Report for {symbol}*\n\n"
+        f"🔻 Lowest: {lowest[0]} - {lowest[1]:.4f}\n"
+        f"🔺 Highest: {highest[0]} - {highest[1]:.4f}\n\n"
+        f"💰 Difference: {diff:.4f} ({percent:.2f}%)"
+    )
+    await query.edit_message_text(message, parse_mode="Markdown")
 
-        await query.edit_message_text(text=message, parse_mode="Markdown")
-
-    except Exception as e:
-        await query.edit_message_text(f"⚠️ Error: {str(e)}")
-
-# Ana program
+# ======================
+# BOT SETUP
+# ======================
 if __name__ == "__main__":
-    TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.run_polling()

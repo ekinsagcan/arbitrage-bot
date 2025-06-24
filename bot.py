@@ -1,19 +1,30 @@
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Function to fetch prices for a given coin
+# ✅ Coin butonları burada tanımlanır
+POPULAR_COINS = [
+    ("Bitcoin", "bitcoin"),
+    ("Ethereum", "ethereum"),
+    ("Solana", "solana"),
+    ("Dogecoin", "dogecoin"),
+    ("BNB", "binancecoin"),
+    ("Pepe", "pepe")
+]
+
+# CoinGecko'dan fiyat verisi çeker
 def get_prices(symbol="bitcoin"):
     url = f"https://api.coingecko.com/api/v3/coins/{symbol}/tickers?per_page=100&page=1"
     response = requests.get(url)
 
+    if response.status_code == 404:
+        raise Exception(f"❌ Coin '{symbol}' not found.")
     if response.status_code != 200:
-        raise Exception("Failed to retrieve data from CoinGecko.")
+        raise Exception("❌ Failed to retrieve data from CoinGecko.")
 
     data = response.json()
-
     if "tickers" not in data or not data["tickers"]:
-        raise Exception("No price data available for this coin.")
+        raise Exception("⚠️ No price data available.")
 
     prices = []
     for ticker in data["tickers"]:
@@ -28,31 +39,31 @@ def get_prices(symbol="bitcoin"):
 
     return prices
 
-# /start command: teach the user how to use the bot
+# /start komutu - tanıtım + butonlar
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = (
-        "👋 Hello! I'm your *Crypto Arbitrage Opportunity Bot*. 📊\n\n"
-        "Here's what I can do:\n"
-        "🟢 Use `/arbitrage coinname` to find arbitrage opportunities.\n"
-        "   Example: `/arbitrage bitcoin` or `/arbitrage ethereum`\n\n"
-        "🔍 I check over 100 exchanges and show you:\n"
-        "   - The cheapest exchange\n"
-        "   - The most expensive exchange\n"
-        "   - The profit percentage if you buy low & sell high 💰\n\n"
-        "Try it now with a popular coin like `/arbitrage dogecoin` or `/arbitrage solana`."
+        "👋 Welcome! I'm your *Crypto Arbitrage Bot*.\n\n"
+        "📊 I scan 100+ exchanges and show where to buy low & sell high.\n\n"
+        "💡 Select a coin below to see arbitrage opportunities:"
     )
-    await update.message.reply_text(message, parse_mode="Markdown")
 
-# /arbitrage command handler
-async def arbitrage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Butonları oluştur
+    buttons = [
+        [InlineKeyboardButton(name, callback_data=symbol)]
+        for name, symbol in POPULAR_COINS
+    ]
+    keyboard = InlineKeyboardMarkup(buttons)
+
+    await update.message.reply_text(message, reply_markup=keyboard, parse_mode="Markdown")
+
+# Butona basıldığında çalışır
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    symbol = query.data
+
     try:
-        if not context.args:
-            await update.message.reply_text("Please enter a coin name. Example: /arbitrage bitcoin")
-            return
-
-        symbol = context.args[0].lower()
         prices = get_prices(symbol)
-
         prices_sorted = sorted(prices, key=lambda x: x[2])
         lowest = prices_sorted[0]
         highest = prices_sorted[-1]
@@ -66,15 +77,16 @@ async def arbitrage(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔺 Highest Price: {highest[0]} - {highest[2]:.4f} ({highest[1]})\n\n"
             f"📊 Difference: {diff:.4f} ({percent:.2f}%)"
         )
-        await update.message.reply_text(message, parse_mode="Markdown")
+
+        await query.edit_message_text(text=message, parse_mode="Markdown")
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        await query.edit_message_text(f"⚠️ Error: {str(e)}")
 
-# Main bot loop
+# Ana program
 if __name__ == "__main__":
-    TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"  # Replace with your actual bot token
+    TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("arbitrage", arbitrage))
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.run_polling()

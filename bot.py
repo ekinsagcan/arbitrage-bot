@@ -28,6 +28,9 @@ EXCHANGES = {
     "Coinbase_products": "https://api.exchange.coinbase.com/products"
 }
 
+def normalize_symbol(sym):
+    return sym.replace("-", "").replace("_", "").replace("/", "").upper()
+
 # ======================
 # FETCH ALL PRICES
 # ======================
@@ -41,99 +44,102 @@ async def fetch_all_prices():
             if name == "Binance":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol = item["symbol"].upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["price"])
                     coins[symbol] = price
 
             elif name == "OKX":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = item["instId"].replace("-", "").upper()
+                    symbol = normalize_symbol(item["instId"])
                     price = float(item["last"])
                     coins[symbol] = price
 
             elif name == "KuCoin":
                 data = requests.get(url).json().get("data", {}).get("ticker", [])
                 for item in data:
-                    symbol = item["symbol"].replace("-", "").upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["last"])
                     coins[symbol] = price
 
             elif name == "Bybit":
                 data = requests.get(url).json().get("result", {}).get("list", [])
                 for item in data:
-                    symbol = item["symbol"].upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["lastPrice"])
                     coins[symbol] = price
 
             elif name == "MEXC":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol = item["symbol"].upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["price"])
                     coins[symbol] = price
 
             elif name == "Bitget":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = item["symbol"].replace("_", "").upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["last"])
                     coins[symbol] = price
 
             elif name == "CoinEx":
                 data = requests.get(url).json().get("data", {})
                 for symbol, item in data.items():
-                    symbol = symbol.upper()
+                    symbol_norm = normalize_symbol(symbol)
                     price = float(item["last"])
-                    coins[symbol] = price
+                    coins[symbol_norm] = price
 
             elif name == "LBank":
                 data = requests.get(url).json().get("data", [])
                 for item in data:
-                    symbol = item["symbol"].upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["ticker"]["latest"])
                     coins[symbol] = price
 
             elif name == "Gate.io":
                 data = requests.get(url).json()
                 for symbol, item in data.items():
-                    symbol = symbol.upper()
+                    symbol_norm = normalize_symbol(symbol)
                     price = float(item["last"])
-                    coins[symbol] = price
+                    coins[symbol_norm] = price
 
             elif name == "Bitfinex":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol_raw = item[0]  # örn: "tBTCUSD"
+                    symbol_raw = item[0]
                     if symbol_raw.startswith("t") and len(symbol_raw) > 1:
-                        symbol = symbol_raw[1:].upper()
-                        price = float(item[7])  # last price index 7
+                        symbol = normalize_symbol(symbol_raw[1:])
+                        price = float(item[7])
                         coins[symbol] = price
 
             elif name == "Poloniex":
                 data = requests.get(url).json()
                 for item in data:
-                    symbol = item["symbol"].replace("/", "").upper()
+                    symbol = normalize_symbol(item["symbol"])
                     price = float(item["last"])
                     coins[symbol] = price
 
             elif name == "Bitstamp_products":
-                # Bu endpoint sadece ürün listesi, fiyat için aşağıya geçilecek
                 coins_by_exchange["Bitstamp_products"] = url
 
             elif name == "Bitstamp_ticker_base":
-                # Burada döngüyle ürünlerden fiyat çekilecek, ama önce ürünleri almalı
-                # Bu fonksiyon çağrısı içinde ayrı ele alınacak
                 coins_by_exchange["Bitstamp_ticker_base"] = url
 
             elif name == "Coinbase_products":
-                # Benzer şekilde ürünler listesi alınacak, fiyatlar ayrı alınacak
                 coins_by_exchange["Coinbase_products"] = url
+
+            else:
+                # Unknown exchange, skip
+                pass
+
+            if name not in ["Bitstamp_products", "Bitstamp_ticker_base", "Coinbase_products"]:
+                coins_by_exchange[name] = coins
 
         except Exception as e:
             print(f"Error fetching from {name}: {e}")
 
-    # Bitstamp için ürün listesini çek ve fiyatları al
+    # Bitstamp ürün listesi ve fiyatları çek
     try:
         products_url = coins_by_exchange.get("Bitstamp_products")
         ticker_base_url = coins_by_exchange.get("Bitstamp_ticker_base")
@@ -141,7 +147,7 @@ async def fetch_all_prices():
             products = requests.get(products_url).json()
             coins = {}
             for product in products:
-                symbol = product['name'].replace("/", "").upper()
+                symbol = normalize_symbol(product['name'])
                 ticker_url = f"{ticker_base_url}{product['url_symbol']}/"
                 ticker_data = requests.get(ticker_url).json()
                 price = float(ticker_data.get("last", 0))
@@ -152,7 +158,7 @@ async def fetch_all_prices():
     except Exception as e:
         print(f"Error fetching Bitstamp tickers: {e}")
 
-    # Coinbase için ürünleri çek ve fiyatları al
+    # Coinbase ürün listesi ve fiyatları çek
     try:
         products_url = coins_by_exchange.get("Coinbase_products")
         if products_url:
@@ -160,7 +166,7 @@ async def fetch_all_prices():
             coins = {}
             for product in products:
                 if product['quote_currency'] == "USD":
-                    symbol = (product['base_currency'] + product['quote_currency']).upper()
+                    symbol = normalize_symbol(product['base_currency'] + product['quote_currency'])
                     ticker_url = f"https://api.exchange.coinbase.com/products/{product['id']}/ticker"
                     ticker_data = requests.get(ticker_url).json()
                     price = float(ticker_data.get("price", 0))
@@ -175,7 +181,7 @@ async def fetch_all_prices():
 # ======================
 # FIND TOP OPPORTUNITIES
 # ======================
-def find_top_arbitrage_opportunities(coins_by_exchange, top_n=5):
+def find_top_arbitrage_opportunities(coins_by_exchange, top_n=10):
     merged = {}
     for exchange, coins in coins_by_exchange.items():
         for symbol, price in coins.items():
@@ -201,7 +207,9 @@ def find_top_arbitrage_opportunities(coins_by_exchange, top_n=5):
 # BOT COMMANDS
 # ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome! Use /top to see the top arbitrage opportunities.")
+    await update.message.reply_text(
+        "Welcome! Use /top to see the top arbitrage opportunities across many exchanges."
+    )
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Fetching data, please wait...")

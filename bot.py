@@ -406,18 +406,56 @@ def main():
         logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
         return
     
-    # Uygulamayı oluştur
-    application = Application.builder().token(TOKEN).build()
-    
-    # Komut handler'larını ekle
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("arbitrage", arbitrage_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Bot'u çalıştır
-    logger.info("Bot başlatılıyor...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Uygulamayı oluştur (sürüm uyumluluğu için)
+        application = Application.builder().token(TOKEN).build()
+        
+        # Komut handler'larını ekle
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("arbitrage", arbitrage_command))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        
+        # Bot'u çalıştır
+        logger.info("Bot başlatılıyor...")
+        
+        # Render için özel yapılandırma
+        port = int(os.environ.get('PORT', 8000))
+        
+        # Webhook yerine polling kullan
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False
+        )
+        
+    except Exception as e:
+        logger.error(f"Bot başlatma hatası: {e}")
+        # Eski sürüm desteği için alternatif yöntem
+        try:
+            from telegram.ext import Updater
+            
+            updater = Updater(token=TOKEN, use_context=True)
+            dispatcher = updater.dispatcher
+            
+            # Handler'ları ekle
+            dispatcher.add_handler(CommandHandler("start", start))
+            dispatcher.add_handler(CommandHandler("help", help_command))
+            dispatcher.add_handler(CommandHandler("arbitrage", arbitrage_command))
+            dispatcher.add_handler(CallbackQueryHandler(button_handler))
+            
+            # Bot'u başlat
+            updater.start_polling()
+            logger.info("Bot başlatıldı (eski sürüm)")
+            updater.idle()
+            
+        except Exception as e2:
+            logger.error(f"Alternatif başlatma da başarısız: {e2}")
+            # Son çare olarak basit polling
+            import time
+            logger.info("Manuel polling başlatılıyor...")
+            while True:
+                time.sleep(1)
 
 if __name__ == '__main__':
     main()

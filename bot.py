@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime
+from typing import Dict, List, Tuple
 import aiohttp
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup

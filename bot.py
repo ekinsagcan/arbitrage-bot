@@ -1,28 +1,16 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from datetime import datetime
 import aiohttp
 import sqlite3
-import json
-import time
-
-# Telegram bot import'ları - sürüm uyumluluğu için
-try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-    TELEGRAM_VERSION = "v20+"
-    print("Telegram bot v20+ yüklendi")
-except ImportError:
-    try:
-        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-        from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
-        TELEGRAM_VERSION = "v13-v14"
-        print("Telegram bot v13-v14 yüklendi")
-    except ImportError:
-        print("Telegram bot kütüphanesi bulunamadı!")
-        exit(1)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
 # Logging ayarları
 logging.basicConfig(
@@ -39,445 +27,217 @@ class ArbitrageBot:
             'gate': 'https://api.gateio.ws/api/v4/spot/tickers',
             'mexc': 'https://api.mexc.com/api/v3/ticker/price'
         }
-        self.premium_users = set()
         self.init_database()
     
     def init_database(self):
         """Veritabanını başlat"""
-        conn = sqlite3.connect('arbitrage.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                subscription_end DATE,
-                is_premium BOOLEAN DEFAULT FALSE
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS arbitrage_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT,
-                exchange1 TEXT,
-                exchange2 TEXT,
-                price1 REAL,
-                price2 REAL,
-                profit_percent REAL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        conn.commit()
-        conn.close()
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    subscription_end DATE,
+                    is_premium BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS arbitrage_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT,
+                    exchange1 TEXT,
+                    exchange2 TEXT,
+                    price1 REAL,
+                    price2 REAL,
+                    profit_percent REAL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
     
-    async def fetch_binance_prices(self) -> Dict[str, float]:
-        """Binance fiyatlarını çek"""
+    async def fetch_prices(self, exchange: str) -> Dict[str, float]:
+        """Borsa fiyatlarını çek"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.exchanges['binance']) as response:
+                async with session.get(self.exchanges[exchange]) as response:
                     data = await response.json()
-                    return {item['symbol']: float(item['price']) for item in data}
+                    
+                    if exchange == 'binance':
+                        return {item['symbol']: float(item['price']) for item in data}
+                    elif exchange == 'kucoin':
+                        return {item['symbol'].replace('-', ''): float(item['last']) for item in data['data']['ticker']}
+                    elif exchange == 'gate':
+                        return {item['currency_pair'].replace('_', ''): float(item['last']) for item in data}
+                    elif exchange == 'mexc':
+                        return {item['symbol']: float(item['price']) for item in data}
         except Exception as e:
-            logger.error(f"Binance fiyat hatası: {e}")
-            return {}
-    
-    async def fetch_kucoin_prices(self) -> Dict[str, float]:
-        """KuCoin fiyatlarını çek"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.exchanges['kucoin']) as response:
-                    data = await response.json()
-                    prices = {}
-                    for item in data['data']['ticker']:
-                        symbol = item['symbol'].replace('-', '')
-                        prices[symbol] = float(item['last'])
-                    return prices
-        except Exception as e:
-            logger.error(f"KuCoin fiyat hatası: {e}")
-            return {}
-    
-    async def fetch_gate_prices(self) -> Dict[str, float]:
-        """Gate.io fiyatlarını çek"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.exchanges['gate']) as response:
-                    data = await response.json()
-                    prices = {}
-                    for item in data:
-                        symbol = item['currency_pair'].replace('_', '')
-                        prices[symbol] = float(item['last'])
-                    return prices
-        except Exception as e:
-            logger.error(f"Gate.io fiyat hatası: {e}")
-            return {}
-    
-    async def fetch_mexc_prices(self) -> Dict[str, float]:
-        """MEXC fiyatlarını çek"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.exchanges['mexc']) as response:
-                    data = await response.json()
-                    return {item['symbol']: float(item['price']) for item in data}
-        except Exception as e:
-            logger.error(f"MEXC fiyat hatası: {e}")
+            logger.error(f"{exchange} fiyat hatası: {str(e)}")
             return {}
     
     async def get_all_prices(self) -> Dict[str, Dict[str, float]]:
         """Tüm borsalardan fiyatları çek"""
-        tasks = [
-            self.fetch_binance_prices(),
-            self.fetch_kucoin_prices(),
-            self.fetch_gate_prices(),
-            self.fetch_mexc_prices()
-        ]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        return {
-            'binance': results[0] if not isinstance(results[0], Exception) else {},
-            'kucoin': results[1] if not isinstance(results[1], Exception) else {},
-            'gate': results[2] if not isinstance(results[2], Exception) else {},
-            'mexc': results[3] if not isinstance(results[3], Exception) else {}
-        }
+        tasks = [self.fetch_prices(exchange) for exchange in self.exchanges]
+        results = await asyncio.gather(*tasks)
+        return dict(zip(self.exchanges.keys(), results))
     
-    def calculate_arbitrage_opportunities(self, all_prices: Dict[str, Dict[str, float]]) -> List[Dict]:
+    def calculate_arbitrage(self, all_prices: Dict[str, Dict[str, float]]) -> List[Dict]:
         """Arbitraj fırsatlarını hesapla"""
         opportunities = []
         
-        # Ortak coinleri bul
-        common_symbols = set()
-        for exchange_prices in all_prices.values():
-            if common_symbols:
-                common_symbols &= set(exchange_prices.keys())
-            else:
-                common_symbols = set(exchange_prices.keys())
+        # Tüm borsalarda ortak olan sembolleri bul
+        common_symbols = set.intersection(*[set(prices.keys()) for prices in all_prices.values() if prices])
         
         for symbol in common_symbols:
-            prices = {}
-            for exchange, exchange_prices in all_prices.items():
-                if symbol in exchange_prices:
-                    prices[exchange] = exchange_prices[symbol]
+            prices = {ex: all_prices[ex][symbol] for ex in all_prices if symbol in all_prices[ex]}
             
             if len(prices) >= 2:
                 sorted_prices = sorted(prices.items(), key=lambda x: x[1])
-                lowest_exchange, lowest_price = sorted_prices[0]
-                highest_exchange, highest_price = sorted_prices[-1]
+                lowest_ex, lowest_price = sorted_prices[0]
+                highest_ex, highest_price = sorted_prices[-1]
                 
                 if lowest_price > 0:
                     profit_percent = ((highest_price - lowest_price) / lowest_price) * 100
                     
-                    if profit_percent > 0.5:  # En az %0.5 kar
+                    if profit_percent > 0.5:  # Minimum %0.5 kar
                         opportunities.append({
                             'symbol': symbol,
-                            'buy_exchange': lowest_exchange,
-                            'sell_exchange': highest_exchange,
+                            'buy_exchange': lowest_ex,
+                            'sell_exchange': highest_ex,
                             'buy_price': lowest_price,
                             'sell_price': highest_price,
-                            'profit_percent': profit_percent,
-                            'profit_amount': highest_price - lowest_price
+                            'profit_percent': profit_percent
                         })
         
         return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
     
     def is_premium_user(self, user_id: int) -> bool:
-        """Kullanıcının premium olup olmadığını kontrol et"""
-        conn = sqlite3.connect('arbitrage.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT subscription_end FROM users 
-            WHERE user_id = ? AND is_premium = TRUE
-        ''', (user_id,))
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            subscription_end = datetime.strptime(result[0], '%Y-%m-%d')
-            return subscription_end > datetime.now()
-        return False
+        """Premium kullanıcı kontrolü"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT subscription_end FROM users 
+                WHERE user_id = ? AND is_premium = TRUE
+            ''', (user_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                return datetime.strptime(result[0], '%Y-%m-%d') > datetime.now()
+            return False
     
     def save_user(self, user_id: int, username: str):
-        """Kullanıcıyı kaydet"""
-        conn = sqlite3.connect('arbitrage.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO users (user_id, username, is_premium)
-            VALUES (?, ?, FALSE)
-        ''', (user_id, username))
-        conn.commit()
-        conn.close()
+        """Kullanıcıyı veritabanına kaydet"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO users (user_id, username)
+                VALUES (?, ?)
+            ''', (user_id, username))
+            conn.commit()
 
-# Bot instance
-arbitrage_bot = ArbitrageBot()
+# Global bot instance
+bot = ArbitrageBot()
 
-# V20+ için handler fonksiyonları
-async def start_command(update: Update, context):
-    """Start komutu"""
+# Command Handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    arbitrage_bot.save_user(user.id, user.username or "")
+    bot.save_user(user.id, user.username or "")
     
     keyboard = [
-        [InlineKeyboardButton("🔍 Arbitraj Fırsatları", callback_data='check_arbitrage')],
-        [InlineKeyboardButton("💎 Premium Üyelik", callback_data='premium')],
-        [InlineKeyboardButton("ℹ️ Bilgi", callback_data='info')]
+        [InlineKeyboardButton("🔍 Arbitraj Kontrol", callback_data='check')],
+        [InlineKeyboardButton("💎 Premium", callback_data='premium')],
+        [InlineKeyboardButton("ℹ️ Yardım", callback_data='help')]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    welcome_text = f"""
-🚀 Kripto Arbitraj Bot'a Hoş Geldiniz!
+    await update.message.reply_text(
+        f"Merhaba {user.first_name}!\nKripto arbitraj botuna hoş geldiniz.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-Merhaba {user.first_name}! 
-
-Bu bot ile farklı borsalar arasındaki fiyat farklarını takip edebilir ve arbitraj fırsatlarını yakalayabilirsiniz.
-
-🔥 Özellikler:
-• Gerçek zamanlı fiyat analizi
-• En karlı arbitraj fırsatları
-• 4+ büyük borsa desteği
-• Anında bildirimler
-
-💰 Günde %1-5 arası kar fırsatları!
-
-Başlamak için aşağıdaki butonları kullanın:
-    """
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-
-async def button_callback(update: Update, context):
-    """Buton tıklamalarını işle"""
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    if query.data == 'check':
+        await handle_arbitrage_check(query)
+    elif query.data == 'premium':
+        await show_premium_info(query)
+    elif query.data == 'help':
+        await show_help(query)
+    elif query.data == 'back':
+        await start(update, context)
+
+async def handle_arbitrage_check(query):
+    await query.edit_message_text("🔄 Fiyatlar kontrol ediliyor...")
+    
+    prices = await bot.get_all_prices()
+    opportunities = bot.calculate_arbitrage(prices)
     user_id = query.from_user.id
     
-    if query.data == 'check_arbitrage':
-        await query.edit_message_text("🔄 Fiyatlar kontrol ediliyor, lütfen bekleyin...")
-        
-        # Fiyatları çek
-        all_prices = await arbitrage_bot.get_all_prices()
-        opportunities = arbitrage_bot.calculate_arbitrage_opportunities(all_prices)
-        
-        if not opportunities:
-            await query.edit_message_text("❌ Şu anda arbitraj fırsatı bulunamadı.")
-            return
-        
-        is_premium = arbitrage_bot.is_premium_user(user_id)
-        
-        if is_premium:
-            # Premium kullanıcı - tüm fırsatları göster
-            text = "💎 PREMIUM - En İyi Arbitraj Fırsatları:\n\n"
-            for i, opp in enumerate(opportunities[:10], 1):
-                text += f"{i}. {opp['symbol']}\n"
-                text += f"   📈 Al: {opp['buy_exchange'].upper()} - ${opp['buy_price']:.6f}\n"
-                text += f"   📉 Sat: {opp['sell_exchange'].upper()} - ${opp['sell_price']:.6f}\n"
-                text += f"   💰 Kar: %{opp['profit_percent']:.2f}\n"
-                text += f"   💵 Fark: ${opp['profit_amount']:.6f}\n\n"
-        else:
-            # Ücretsiz kullanıcı - sadece ilk 3 fırsatı göster
-            text = "🔍 Ücretsiz - En İyi 3 Arbitraj Fırsatı:\n\n"
-            for i, opp in enumerate(opportunities[:3], 1):
-                text += f"{i}. {opp['symbol']}\n"
-                text += f"   💰 Kar Potansiyeli: %{opp['profit_percent']:.2f}\n\n"
-            
-            text += "💎 Tüm fırsatları ve detayları görmek için Premium üyelik gerekli!"
-        
-        keyboard = [
-            [InlineKeyboardButton("🔄 Yenile", callback_data='check_arbitrage')],
-            [InlineKeyboardButton("💎 Premium Ol", callback_data='premium')],
-            [InlineKeyboardButton("🏠 Ana Menü", callback_data='main_menu')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    elif query.data == 'premium':
-        text = """
-💎 PREMIUM ÜYELİK AVANTAJLARI
-
-🔥 Sınırsız arbitraj analizi
-📊 Detaylı kar hesaplamaları
-⚡ Gerçek zamanlı fiyat takibi
-🎯 En karlı fırsatlar öncelikle
-📱 7/24 bot erişimi
-💰 Günlük %1-5 kar potansiyeli
-
-💳 Fiyatlar:
-• Aylık: 29.99 USD
-• 3 Aylık: 79.99 USD (%11 indirim)
-• Yıllık: 299.99 USD (%17 indirim)
-
-📞 Premium üyelik için:
-@arbitraj_destek ile iletişime geçin
-
-🎁 İlk hafta ÜCRETSİZ deneme!
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("📞 İletişim", url='https://t.me/arbitraj_destek')],
-            [InlineKeyboardButton("🏠 Ana Menü", callback_data='main_menu')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    elif query.data == 'info':
-        text = """
-ℹ️ ARBITRAJ TİCARETİ NEDİR?
-
-Arbitraj, aynı varlığın farklı piyasalardaki fiyat farklarından yararlanarak kar elde etme işlemidir.
-
-🎯 Nasıl Çalışır:
-1. Coin'i düşük fiyattan al
-2. Yüksek fiyattan sat
-3. Aradaki farkı kazan
-
-⚠️ Riskler:
-• Transfer süreleri
-• İşlem ücretleri
-• Piyasa volatilitesi
-• Likidite sorunları
-
-💡 Ipuçları:
-• Hızlı işlem yapın
-• Ücretleri hesaplayın
-• Küçük miktarlarla başlayın
-• Risk yönetimi yapın
-
-🤖 Bu bot sadece analiz sağlar, yatırım tavsiyesi değildir.
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("🏠 Ana Menü", callback_data='main_menu')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    elif query.data == 'main_menu':
-        keyboard = [
-            [InlineKeyboardButton("🔍 Arbitraj Fırsatları", callback_data='check_arbitrage')],
-            [InlineKeyboardButton("💎 Premium Üyelik", callback_data='premium')],
-            [InlineKeyboardButton("ℹ️ Bilgi", callback_data='info')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        text = "🏠 Ana Menü - Yapmak istediğiniz işlemi seçin:"
-        await query.edit_message_text(text, reply_markup=reply_markup)
-
-async def help_command(update: Update, context):
-    """Yardım komutu"""
-    help_text = """
-🤖 ARBITRAJ BOT KOMUTLARI
-
-/start - Botu başlat
-/help - Bu yardım mesajını göster
-/arbitrage - Arbitraj fırsatlarını kontrol et
-/premium - Premium üyelik bilgileri
-
-💬 Destek için: @arbitraj_destek
-🌐 Web sitesi: (yakında)
-
-Bot 7/24 aktif olarak çalışmaktadır.
-    """
-    await update.message.reply_text(help_text)
-
-async def arbitrage_command(update: Update, context):
-    """Arbitraj komut kısayolu"""
-    user_id = update.effective_user.id
-    
-    # Fiyatları çek
-    all_prices = await arbitrage_bot.get_all_prices()
-    opportunities = arbitrage_bot.calculate_arbitrage_opportunities(all_prices)
-    
     if not opportunities:
-        await update.message.reply_text("❌ Şu anda arbitraj fırsatı bulunamadı.")
+        await query.edit_message_text("❌ Şu an arbitraj fırsatı yok")
         return
     
-    is_premium = arbitrage_bot.is_premium_user(user_id)
+    is_premium = bot.is_premium_user(user_id)
+    text = "💎 Premium Arbitraj Fırsatları:\n\n" if is_premium else "🔍 Ücretsiz Arbitraj Fırsatları:\n\n"
     
-    if is_premium:
-        text = "💎 PREMIUM - En İyi Arbitraj Fırsatları:\n\n"
-        for i, opp in enumerate(opportunities[:10], 1):
-            text += f"{i}. {opp['symbol']}\n"
-            text += f"   📈 Al: {opp['buy_exchange'].upper()} - ${opp['buy_price']:.6f}\n"
-            text += f"   📉 Sat: {opp['sell_exchange'].upper()} - ${opp['sell_price']:.6f}\n"
-            text += f"   💰 Kar: %{opp['profit_percent']:.2f}\n\n"
-    else:
-        text = "🔍 Ücretsiz - En İyi 3 Arbitraj Fırsatı:\n\n"
-        for i, opp in enumerate(opportunities[:3], 1):
-            text += f"{i}. {opp['symbol']}\n"
-            text += f"   💰 Kar Potansiyeli: %{opp['profit_percent']:.2f}\n\n"
-        
-        text += "💎 Premium üyelik için /premium komutunu kullanın!"
+    max_opps = 10 if is_premium else 3
+    for opp in opportunities[:max_opps]:
+        text += f"• {opp['symbol']}\n"
+        text += f"  ⬇️ {opp['buy_exchange']}: ${opp['buy_price']:.6f}\n"
+        text += f"  ⬆️ {opp['sell_exchange']}: ${opp['sell_price']:.6f}\n"
+        text += f"  💰 %{opp['profit_percent']:.2f} kar\n\n"
     
-    await update.message.reply_text(text)
+    if not is_premium:
+        text += "\n💎 Daha fazlası için premium üye olun!"
+    
+    keyboard = [
+        [InlineKeyboardButton("🔄 Yenile", callback_data='check')],
+        [InlineKeyboardButton("💎 Premium", callback_data='premium')],
+        [InlineKeyboardButton("🔙 Ana Menü", callback_data='back')]
+    ]
+    
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# V13-V14 için handler fonksiyonları
-def start_old(update: Update, context):
-    """Eski sürüm start handler"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_command(update, context))
+async def show_premium_info(query):
+    text = """💎 Premium Üyelik Avantajları:
+    
+• Sınırsız arbitraj kontrolü
+• Detaylı fiyat analizleri
+• Öncelikli bildirimler
+• VIP destek hattı
 
-def help_old(update: Update, context):
-    """Eski sürüm help handler"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(help_command(update, context))
+💰 Aylık: $29.99
+📞 İletişim: @premium_destek"""
+    
+    keyboard = [[InlineKeyboardButton("🔙 Geri", callback_data='back')]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-def arbitrage_old(update: Update, context):
-    """Eski sürüm arbitrage handler"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(arbitrage_command(update, context))
+async def show_help(query):
+    text = """ℹ️ Bot Kullanım Kılavuzu:
 
-def button_old(update: Update, context):
-    """Eski sürüm button handler"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(button_callback(update, context))
+/start - Botu başlat
+/arbitrage - Arbitraj kontrolü
+/premium - Üyelik bilgileri
+
+📞 Destek: @bot_destek"""
+    
+    keyboard = [[InlineKeyboardButton("🔙 Geri", callback_data='back')]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 def main():
-    """Ana fonksiyon"""
-    # Bot token'ı - environment variable'dan al
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA")
-    
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
         return
     
-    logger.info(f"Bot başlatılıyor... Telegram sürümü: {TELEGRAM_VERSION}")
+    app = Application.builder().token(TOKEN).build()
     
-    try:
-        if TELEGRAM_VERSION == "v20+":
-            # Yeni sürüm (v20+)
-            application = Application.builder().token(TOKEN).build()
-            
-            # Handler'ları ekle
-            application.add_handler(CommandHandler("start", start_command))
-            application.add_handler(CommandHandler("help", help_command))
-            application.add_handler(CommandHandler("arbitrage", arbitrage_command))
-            application.add_handler(CallbackQueryHandler(button_callback))
-            
-            logger.info("Yeni sürüm (v20+) bot başlatıldı")
-            application.run_polling(drop_pending_updates=True)
-            
-        else:
-            # Eski sürüm (v13-v14)
-            updater = Updater(token=TOKEN, use_context=True)
-            dispatcher = updater.dispatcher
-            
-            # Handler'ları ekle
-            dispatcher.add_handler(CommandHandler("start", start_old))
-            dispatcher.add_handler(CommandHandler("help", help_old))
-            dispatcher.add_handler(CommandHandler("arbitrage", arbitrage_old))
-            dispatcher.add_handler(CallbackQueryHandler(button_old))
-            
-            logger.info("Eski sürüm (v13-v14) bot başlatıldı")
-            updater.start_polling(drop_pending_updates=True)
-            updater.idle()
-            
-    except Exception as e:
-        logger.error(f"Bot başlatma hatası: {e}")
-        logger.error(f"Hata detayı: ", exc_info=True)
+    # Handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    
+    logger.info("Bot başlatılıyor...")
+    app.run_polling()
 
 if __name__ == '__main__':
     main()

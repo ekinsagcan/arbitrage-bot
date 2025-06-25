@@ -396,11 +396,14 @@ async def arbitrage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Ana fonksiyon"""
-    # Bot token'ını environment variable'dan al
-    TOKEN = os.getenv('7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA')
+    # Bot token'ı - doğrudan kodda veya environment variable'dan
+    TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"
+    
+    # Alternatif olarak environment variable'dan da alabilirsiniz:
+    # TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA')
     
     if not TOKEN:
-        logger.error("7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA environment variable bulunamadı!")
+        logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
         return
     
     # Uygulamayı oluştur

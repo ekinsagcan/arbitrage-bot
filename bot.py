@@ -5,9 +5,22 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import aiohttp
 import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import json
+import time
+
+# Telegram bot import'ları - sürüm uyumluluğu için
+try:
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+    NEW_VERSION = True
+except ImportError:
+    try:
+        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+        from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+        NEW_VERSION = False
+    except ImportError:
+        from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+        NEW_VERSION = False
 
 # Logging ayarları
 logging.basicConfig(
@@ -193,7 +206,33 @@ class ArbitrageBot:
 # Bot komutları
 arbitrage_bot = ArbitrageBot()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Sürüm uyumluluğu için fonksiyon wrapper'ları
+if NEW_VERSION:
+    async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await start_handler(update, context)
+    
+    async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await button_handler_func(update, context)
+    
+    async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await help_handler(update, context)
+    
+    async def arbitrage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await arbitrage_handler(update, context)
+else:
+    def start(update: Update, context):
+        asyncio.create_task(start_handler(update, context))
+    
+    def button_handler(update: Update, context):
+        asyncio.create_task(button_handler_func(update, context))
+    
+    def help_command(update: Update, context):
+        asyncio.create_task(help_handler(update, context))
+    
+    def arbitrage_command(update: Update, context):
+        asyncio.create_task(arbitrage_handler(update, context))
+
+async def start_handler(update: Update, context):
     """Start komutu"""
     user = update.effective_user
     arbitrage_bot.save_user(user.id, user.username)
@@ -225,7 +264,7 @@ Başlamak için aşağıdaki butonları kullanın:
     
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler_func(update: Update, context):
     """Buton tıklamalarını işle"""
     query = update.callback_query
     await query.answer()
@@ -346,7 +385,7 @@ Arbitraj, aynı varlığın farklı piyasalardaki fiyat farklarından yararlanar
         text = "🏠 Ana Menü - Yapmak istediğiniz işlemi seçin:"
         await query.edit_message_text(text, reply_markup=reply_markup)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_handler(update: Update, context):
     """Yardım komutu"""
     help_text = """
 🤖 ARBITRAJ BOT KOMUTLARI
@@ -363,7 +402,7 @@ Bot 7/24 aktif olarak çalışmaktadır.
     """
     await update.message.reply_text(help_text)
 
-async def arbitrage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def arbitrage_handler(update: Update, context):
     """Arbitraj komut kısayolu"""
     user_id = update.effective_user.id
     
@@ -396,66 +435,63 @@ async def arbitrage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Ana fonksiyon"""
-    # Bot token'ı - doğrudan kodda veya environment variable'dan
+    # Bot token'ı
     TOKEN = "7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA"
-    
-    # Alternatif olarak environment variable'dan da alabilirsiniz:
-    # TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7779789749:AAGWErvW0sXqNQbif6qxZ10H53xd_g2_KNA')
     
     if not TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN bulunamadı!")
         return
     
-    try:
-        # Uygulamayı oluştur (sürüm uyumluluğu için)
-        application = Application.builder().token(TOKEN).build()
-        
-        # Komut handler'larını ekle
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("arbitrage", arbitrage_command))
-        application.add_handler(CallbackQueryHandler(button_handler))
-        
-        # Bot'u çalıştır
-        logger.info("Bot başlatılıyor...")
-        
-        # Render için özel yapılandırma
-        port = int(os.environ.get('PORT', 8000))
-        
-        # Webhook yerine polling kullan
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False
-        )
-        
-    except Exception as e:
-        logger.error(f"Bot başlatma hatası: {e}")
-        # Eski sürüm desteği için alternatif yöntem
+    logger.info("Bot başlatılıyor...")
+    
+    if NEW_VERSION:
         try:
-            from telegram.ext import Updater
+            # Yeni sürüm (v20+)
+            application = Application.builder().token(TOKEN).build()
             
-            updater = Updater(token=TOKEN, use_context=True)
-            dispatcher = updater.dispatcher
+            application.add_handler(CommandHandler("start", start))
+            application.add_handler(CommandHandler("help", help_command))
+            application.add_handler(CommandHandler("arbitrage", arbitrage_command))
+            application.add_handler(CallbackQueryHandler(button_handler))
             
-            # Handler'ları ekle
-            dispatcher.add_handler(CommandHandler("start", start))
-            dispatcher.add_handler(CommandHandler("help", help_command))
-            dispatcher.add_handler(CommandHandler("arbitrage", arbitrage_command))
-            dispatcher.add_handler(CallbackQueryHandler(button_handler))
+            logger.info("Yeni sürüm bot başlatıldı")
+            application.run_polling(drop_pending_updates=True)
             
-            # Bot'u başlat
-            updater.start_polling()
-            logger.info("Bot başlatıldı (eski sürüm)")
-            updater.idle()
+        except Exception as e:
+            logger.error(f"Yeni sürüm hatası: {e}")
+    else:
+        try:
+            # Eski sürüm (v13-v14)
+            bot = Bot(token=TOKEN)
             
-        except Exception as e2:
-            logger.error(f"Alternatif başlatma da başarısız: {e2}")
-            # Son çare olarak basit polling
-            import time
-            logger.info("Manuel polling başlatılıyor...")
+            # Basit polling döngüsü
+            logger.info("Eski sürüm - basit polling başlatıldı")
+            offset = 0
+            
             while True:
-                time.sleep(1)
+                try:
+                    updates = bot.get_updates(offset=offset, timeout=10)
+                    
+                    for update in updates:
+                        offset = update.update_id + 1
+                        
+                        if update.message:
+                            if update.message.text == '/start':
+                                asyncio.run(start_handler(update, None))
+                            elif update.message.text == '/help':
+                                asyncio.run(help_handler(update, None))
+                            elif update.message.text == '/arbitrage':
+                                asyncio.run(arbitrage_handler(update, None))
+                        
+                        elif update.callback_query:
+                            asyncio.run(button_handler_func(update, None))
+                            
+                except Exception as e:
+                    logger.error(f"Polling hatası: {e}")
+                    time.sleep(5)
+                    
+        except Exception as e:
+            logger.error(f"Bot başlatma hatası: {e}")
 
 if __name__ == '__main__':
     main()

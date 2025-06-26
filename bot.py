@@ -154,17 +154,18 @@ class ArbitrageBot:
             logger.info(f"Loaded {len(self.premium_users)} premium users")
     
     def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
-        """Add premium user (admin command)"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-            cursor.execute('''
-                INSERT OR REPLACE INTO premium_users 
-                (user_id, username, subscription_end)
-                VALUES (?, ?, ?)
-            ''', (user_id, username, end_date))
-            conn.commit()
-            self.premium_users.add(user_id)
+    """Add premium user (admin command)"""
+    with sqlite3.connect('arbitrage.db') as conn:
+        cursor = conn.cursor()
+        end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+        cursor.execute('''
+            INSERT OR REPLACE INTO premium_users 
+            (user_id, username, subscription_end)
+            VALUES (?, ?, ?)
+        ''', (user_id, username, end_date))
+        conn.commit()
+        self.premium_users.add(user_id)
+        logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
     
     def remove_premium_user(self, user_id: int):
         """Remove premium user (admin command)"""
@@ -534,6 +535,14 @@ class ArbitrageBot:
                 } for row in results
             ]
 
+    def get_user_id_by_username(self, username: str) -> int:
+        """Get user ID by username from database"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT user_id FROM users WHERE username = ?', (username,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
 # Global bot instance
 bot = ArbitrageBot()
 
@@ -807,45 +816,86 @@ async def list_premium_users(query):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Admin Commands
-async def add_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
-        await update.message.reply_text("❌ Access denied. Admin only command.")
-        return
-    
-    if not context.args or len(context.args) < 1:
-        await update.message.reply_text("Usage: /addpremium <user_id> [days]\nExample: /addpremium 123456789 30")
-        return
-    
-    try:
-        user_id = int(context.args[0])
-        days = int(context.args[1]) if len(context.args) > 1 else 30
-        
-        bot.add_premium_user(user_id, "", days)
-        await update.message.reply_text(f"✅ User {user_id} added as premium for {days} days.")
-        
-    except ValueError:
-        await update.message.reply_text("❌ Invalid user ID or days. Use numbers only.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-
 async def remove_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         await update.message.reply_text("❌ Access denied. Admin only command.")
         return
     
     if not context.args or len(context.args) < 1:
-        await update.message.reply_text("Usage: /removepremium <user_id>\nExample: /removepremium 123456789")
+        await update.message.reply_text(
+            "Usage: /removepremium <user_id_or_username>\n"
+            "Example: /removepremium 123456789\n"
+            "Example: /removepremium @username"
+        )
         return
     
     try:
-        user_id = int(context.args[0])
-        bot.remove_premium_user(user_id)
-        await update.message.reply_text(f"✅ User {user_id} removed from premium.")
+        user_input = context.args[0]
+        
+        if user_input.isdigit():
+            # User ID
+            user_id = int(user_input)
+            bot.remove_premium_user(user_id)
+            await update.message.reply_text(f"✅ User {user_id} removed from premium.")
+        else:
+            # Username
+            username = user_input.replace('@', '')
+            user_id = await get_user_id_by_username(username)
+            
+            if user_id:
+                bot.remove_premium_user(user_id)
+                await update.message.reply_text(f"✅ User @{username} (ID: {user_id}) removed from premium.")
+            else:
+                await update.message.reply_text(f"❌ User @{username} not found in database.")
         
     except ValueError:
         await update.message.reply_text("❌ Invalid user ID. Use numbers only.")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
+
+async def add_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Access denied. Admin only command.")
+        return
+    
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage: /addpremium <user_id_or_username> [days]\n"
+            "Example: /addpremium 123456789 30\n"
+            "Example: /addpremium @username 30\n"
+            "Example: /addpremium username 30"
+        )
+        return
+    
+    try:
+        user_input = context.args[0]
+        days = int(context.args[1]) if len(context.args) > 1 else 30
+        
+        # Kullanıcı ID mi username mi kontrol et
+        if user_input.isdigit():
+            # User ID
+            user_id = int(user_input)
+            bot.add_premium_user(user_id, "", days)
+            await update.message.reply_text(f"✅ User {user_id} added as premium for {days} days.")
+        else:
+            # Username
+            username = user_input.replace('@', '')  # @ işaretini kaldır
+            user_id = await get_user_id_by_username(username)
+            
+            if user_id:
+                bot.add_premium_user(user_id, username, days)
+                await update.message.reply_text(f"✅ User @{username} (ID: {user_id}) added as premium for {days} days.")
+            else:
+                await update.message.reply_text(f"❌ User @{username} not found in database. User must start the bot first.")
+        
+    except ValueError:
+        await update.message.reply_text("❌ Invalid days parameter. Use numbers only for days.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+async def get_user_id_by_username(username: str) -> int:
+    """Get user ID by username from database"""
+    return bot.get_user_id_by_username(username)
 
 async def list_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:

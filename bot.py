@@ -22,6 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Gumroad link and support username from environment variables
+GUMROAD_LINK = os.getenv("GUMROAD_LINK", "https://gumroad.com/l/your-product")
+SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@arbitragebotsupport")
+
 class ArbitrageBot:
     def __init__(self):
         # Major cryptocurrency exchanges with their APIs
@@ -703,42 +707,53 @@ async def show_premium_info(query):
         text = """💎 **Premium Member Benefits**
         
 ✅ **Active Premium Features:**
-• Unlimited arbitrage scanning
-• Full profit range display (up to 20%)
-• Access to all exchanges data
-• Advanced security filters
-• Volume-based validation
-• Historical data storage
-• Priority support
+- Unlimited arbitrage scanning
+- Full profit range display (up to 20%)
+- Access to all exchanges data
+- Advanced security filters
+- Volume-based validation
+- Historical data storage
+- Priority support
 
 📊 **Statistics:**
-• {} exchanges monitored
-• {} trusted cryptocurrencies
-• Real-time price monitoring
+- {} exchanges monitored
+- {} trusted cryptocurrencies
+- Real-time price monitoring
 
-🔄 **Your subscription is active**""".format(len(bot.exchanges), len(bot.trusted_symbols))
+🔄 **Your subscription is active**
+
+📞 **Support:** {}""".format(len(bot.exchanges), len(bot.trusted_symbols), SUPPORT_USERNAME)
     else:
         text = """💎 **Premium Membership Benefits**
 
 🆓 **Free Account Limitations:**
-• Max 2% profit rate display
-• Limited opportunities shown
-• Basic security filters
+- Max 2% profit rate display
+- Limited opportunities shown
+- Basic security filters
 
 💎 **Premium Benefits:**
-• Full profit range (up to 20%)
-• Unlimited opportunities
-• {} exchanges access
-• {} trusted coins validation
-• Advanced security filters
-• Volume analysis
-• Historical data
-• Priority support
+- Full profit range (up to 20%)
+- Unlimited opportunities
+- {} exchanges access
+- {} trusted coins validation
+- Advanced security filters
+- Volume analysis
+- Historical data
+- Priority support
 
-💰 **Contact admin for premium access**
-📞 **Support:** Contact bot administrator""".format(len(bot.exchanges), len(bot.trusted_symbols))
+💰 **Get Premium Access:**
+🛒 Purchase subscription below
+
+📞 **Support:** {}""".format(len(bot.exchanges), len(bot.trusted_symbols), SUPPORT_USERNAME)
     
-    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='back')]]
+    if is_premium:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='back')]]
+    else:
+        keyboard = [
+            [InlineKeyboardButton("💎 Buy Premium", url=GUMROAD_LINK)],
+            [InlineKeyboardButton("🔙 Back", callback_data='back')]
+        ]
+    
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_help(query):
@@ -765,7 +780,7 @@ async def show_help(query):
 📊 **Data Sources:**
 Multiple cryptocurrency exchanges with real-time price feeds
 
-📞 **Support:** Contact bot administrator for issues""".format(len(bot.exchanges))
+📞 **Support:** {}""".format(len(bot.exchanges), SUPPORT_USERNAME)
     
     keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='back')]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))

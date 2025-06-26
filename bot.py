@@ -586,7 +586,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'list_premium' and query.from_user.id == ADMIN_USER_ID:
         await list_premium_users(query)
     elif query.data == 'back':
-        await start(update, context)
+        await show_main_menu(query)
 
 async def handle_arbitrage_check(query):
     await query.edit_message_text("🔄 Scanning prices across exchanges... (Security filters active)")
@@ -659,6 +659,32 @@ async def show_trusted_symbols(query):
     
     keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='back')]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def show_main_menu(query):
+    user = query.from_user
+    is_premium = bot.is_premium_user(user.id)
+    welcome_text = "🎯 Premium" if is_premium else "🔍 Free"
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 Check Arbitrage", callback_data='check')],
+        [InlineKeyboardButton("📊 Trusted Coins", callback_data='trusted')],
+        [InlineKeyboardButton("💎 Premium Info", callback_data='premium')],
+        [InlineKeyboardButton("ℹ️ Help", callback_data='help')]
+    ]
+    
+    if user.id == ADMIN_USER_ID:
+        keyboard.append([InlineKeyboardButton("👑 Admin Panel", callback_data='admin')])
+    
+    await query.edit_message_text(
+        f"Hello {user.first_name}! 👋\n"
+        f"Welcome to the Advanced Crypto Arbitrage Bot\n\n"
+        f"🔐 Account: {welcome_text}\n"
+        f"📈 {len(bot.exchanges)} Exchanges Supported\n"
+        f"✅ Security filters active\n"
+        f"📊 Volume-based validation\n"
+        f"🔍 Suspicious coin detection",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def show_premium_info(query):
     user_id = query.from_user.id
@@ -757,7 +783,7 @@ async def show_admin_panel(query):
     
     keyboard = [
         [InlineKeyboardButton("📋 List Premium Users", callback_data='list_premium')],
-        [InlineKeyboardButton("🔙 Back", callback_data='back')]
+        [InlineKeyboardButton("🔙 Main Menu", callback_data='back')]
     ]
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))

@@ -154,18 +154,18 @@ class ArbitrageBot:
             logger.info(f"Loaded {len(self.premium_users)} premium users")
     
     def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
-    """Add premium user (admin command)"""
-    with sqlite3.connect('arbitrage.db') as conn:
-        cursor = conn.cursor()
-        end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-        cursor.execute('''
-            INSERT OR REPLACE INTO premium_users 
-            (user_id, username, subscription_end)
-            VALUES (?, ?, ?)
-        ''', (user_id, username, end_date))
-        conn.commit()
-        self.premium_users.add(user_id)
-        logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
+        """Add premium user (admin command)"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+            cursor.execute('''
+                INSERT OR REPLACE INTO premium_users 
+                (user_id, username, subscription_end)
+                VALUES (?, ?, ?)
+            ''', (user_id, username, end_date))
+            conn.commit()
+            self.premium_users.add(user_id)
+            logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
     
     def remove_premium_user(self, user_id: int):
         """Remove premium user (admin command)"""

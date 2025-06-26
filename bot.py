@@ -75,8 +75,6 @@ class ArbitrageBot:
             'RUNEUSDT', 'LUNA2USDT', 'FTMUSDT', 'ONEUSDT', 'ZILUSDT',
             'ZECUSDT', 'DASHUSDT', 'WAVESUSDT', 'ONTUSDT', 'QTUMUSDT'
         }
-
-        self.restricted_exchanges = {'huobi'} 
         
         # Suspicious symbols - common names used for different coins
         self.suspicious_symbols = {
@@ -465,16 +463,6 @@ class ArbitrageBot:
                 
                 lowest_price = lowest_data['price']
                 highest_price = highest_data['price']
-
-            # Alternatif borsaları bul (Huobi kısıtlaması için)
-            alternative_buy = None
-            alternative_sell = None
-    
-            if lowest_ex in self.restricted_exchanges and len(sorted_exchanges) > 1:
-                alternative_buy = sorted_exchanges[1]  # İkinci en düşük
-    
-            if highest_ex in self.restricted_exchanges and len(sorted_exchanges) > 1:
-                alternative_sell = sorted_exchanges[-2]  # İkinci en yüksek
                 
                 if lowest_price > 0:
                     profit_percent = ((highest_price - lowest_price) / lowest_price) * 100
@@ -488,10 +476,8 @@ class ArbitrageBot:
                         'profit_percent': profit_percent,
                         'buy_volume': lowest_data.get('volume', 0),
                         'sell_volume': highest_data.get('volume', 0),
-                        'avg_volume': (lowest_data.get('volume', 0) + highest_data.get('volume', 0)) / 2,
-                        'alternative_buy': alternative_buy,
-                        'alternative_sell': alternative_sell
-}
+                        'avg_volume': (lowest_data.get('volume', 0) + highest_data.get('volume', 0)) / 2
+                    }
                     
                     if self.validate_arbitrage_opportunity(opportunity):
                         # For free users, only show opportunities up to 2%
@@ -644,18 +630,7 @@ async def handle_arbitrage_check(query):
         
         text += f"{i}. {trust_icon} {opp['symbol']}\n"
         text += f"   ⬇️ Buy: {opp['buy_exchange']} ${opp['buy_price']:.6f}\n"
-
-        # Huobi alternatifi göster
-        if opp['buy_exchange'] in bot.restricted_exchanges and opp.get('alternative_buy'):
-            alt_ex, alt_data = opp['alternative_buy']
-            text += f"   Alt Buy: {alt_ex} ${alt_data['price']:.6f}\n"
-
         text += f"   ⬆️ Sell: {opp['sell_exchange']} ${opp['sell_price']:.6f}\n"
-
-        # Huobi alternatifi göster
-        if opp['sell_exchange'] in bot.restricted_exchanges and opp.get('alternative_sell'):
-            alt_ex, alt_data = opp['alternative_sell']
-        text += f"   Alt Sell: {alt_ex} ${alt_data['price']:.6f}\n"
         text += f"   💰 Profit: {opp['profit_percent']:.2f}%\n"
         text += f"   📊 Volume: ${opp['avg_volume']:,.0f}\n\n"
         

@@ -839,7 +839,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_license_activation(query)
 
 async def handle_arbitrage_check(query):
+    # Yüklenme mesajını göster
     await query.edit_message_text("🔄 Scanning prices across exchanges... (Security filters active)")
+    
+    # 3 saniye bekle
+    await asyncio.sleep(3)
     
     user_id = query.from_user.id
     is_premium = bot.is_premium_user(user_id)

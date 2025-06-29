@@ -15,6 +15,10 @@ from telegram.ext import (
     ContextTypes,
 )
 
+# Gumroad API settings
+GUMROAD_PRODUCT_ID = os.getenv("GUMROAD_PRODUCT_ID", "")
+GUMROAD_ACCESS_TOKEN = os.getenv("GUMROAD_ACCESS_TOKEN", "")
+
 # Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -110,6 +114,10 @@ class ArbitrageBot:
         
         self.init_database()
         self.load_premium_users()
+
+        # License key validation cache
+        self.used_license_keys = set()
+        self.load_used_license_keys()
     
     def init_database(self):
         """Initialize database"""
@@ -146,6 +154,15 @@ class ArbitrageBot:
                     subscription_end DATE
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS license_keys (
+                     license_key TEXT PRIMARY KEY,
+                     user_id INTEGER,
+                     username TEXT,
+                     used_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                     gumroad_sale_id TEXT
+    )
+''')
             conn.commit()
     
     def load_premium_users(self):
@@ -156,6 +173,70 @@ class ArbitrageBot:
             results = cursor.fetchall()
             self.premium_users = {row[0] for row in results}
             logger.info(f"Loaded {len(self.premium_users)} premium users")
+
+    def load_used_license_keys(self):
+        """Load used license keys into memory"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT license_key FROM license_keys')
+            results = cursor.fetchall()
+            self.used_license_keys = {row[0] for row in results}
+
+    async def verify_gumroad_license(self, license_key: str) -> Dict:
+        """Verify license key with Gumroad API"""
+        try:
+            headers = {
+                'Authorization': f'Bearer {GUMROAD_ACCESS_TOKEN}',
+                'Content-Type': 'application/json'
+            }
+        
+            url = f"https://api.gumroad.com/v2/licenses/verify"
+            data = {
+                'product_id': GUMROAD_PRODUCT_ID,
+                'license_key': license_key,
+                'increment_uses_count': 'false'
+            }
+        
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result
+                    else:
+                        logger.error(f"Gumroad API error: {response.status}")
+                        return {'success': False, 'error': 'API Error'}
+            
+        except Exception as e:
+            logger.error(f"License verification error: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
+    """Activate license key and add premium subscription"""
+    with sqlite3.connect('arbitrage.db') as conn:
+        cursor = conn.cursor()
+        
+        # Save license key usage
+        cursor.execute('''
+            INSERT INTO license_keys 
+            (license_key, user_id, username, gumroad_sale_id)
+            VALUES (?, ?, ?, ?)
+        ''', (license_key, user_id, username, sale_data.get('sale_id', '')))
+        
+        # Add premium subscription (30 days)
+        end_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+        cursor.execute('''
+            INSERT OR REPLACE INTO premium_users 
+            (user_id, username, subscription_end)
+            VALUES (?, ?, ?)
+        ''', (user_id, username, end_date))
+        
+        conn.commit()
+        
+        # Update memory cache
+        self.used_license_keys.add(license_key)
+        self.premium_users.add(user_id)
+        
+        logger.info(f"License activated: {license_key} for user {user_id}")
     
     def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
         """Add premium user (admin command)"""
@@ -600,6 +681,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_premium_users(query)
     elif query.data == 'back':
         await show_main_menu(query)
+    elif query.data == 'activate_license':
+        await show_license_activation(query)
 
 async def handle_arbitrage_check(query):
     await query.edit_message_text("🔄 Scanning prices across exchanges... (Security filters active)")
@@ -699,6 +782,69 @@ async def show_main_menu(query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def show_license_activation(query):
+    text = """🔑 **License Key Activation**
+
+Enter your Gumroad license key to activate premium subscription.
+
+📝 **How to get your license key:**
+1. Purchase premium subscription from Gumroad
+2. Check your email for the license key
+3. Copy and paste the key here
+
+💡 **Format:** 6F0E4C97-B72A4E69-A11BF6C4-AF6517E7 (SAMPLE)
+
+Please send your license key as a message."""
+    
+    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data='premium')]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_license_activation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle license key messages"""
+    user = update.effective_user
+    license_key = update.message.text.strip()
+    
+    # Check if it looks like a license key
+    if not license_key or len(license_key) < 10:
+        return  # Not a license key, ignore
+    
+    await update.message.reply_text("🔄 Verifying license key...")
+    
+    # Check if already used
+    if license_key in bot.used_license_keys:
+        await update.message.reply_text("❌ This license key has already been used.")
+        return
+    
+    # Verify with Gumroad
+    verification_result = await bot.verify_gumroad_license(license_key)
+    
+    if not verification_result.get('success', False):
+        await update.message.reply_text(
+            "❌ Invalid license key.\n\n"
+            "Please check:\n"
+            "• Key is correct (copy-paste recommended)\n"
+            "• Key hasn't been used before\n"
+            "• Purchase was successful\n\n"
+            f"Contact support: {SUPPORT_USERNAME}"
+        )
+        return
+    
+    # Activate license
+    bot.activate_license_key(
+        license_key, 
+        user.id, 
+        user.username or "", 
+        verification_result.get('purchase', {})
+    )
+    
+    await update.message.reply_text(
+        "✅ **License Activated Successfully!**\n\n"
+        "🎉 Welcome to Premium Membership!\n"
+        "📅 Valid for: 30 days\n"
+        "💎 All premium features are now active\n\n"
+        "Use /start to see your premium status!"
+    )
+
 async def show_premium_info(query):
     user_id = query.from_user.id
     is_premium = bot.is_premium_user(user_id)
@@ -751,8 +897,9 @@ async def show_premium_info(query):
     else:
         keyboard = [
             [InlineKeyboardButton("💎 Buy Premium", url=GUMROAD_LINK)],
+            [InlineKeyboardButton("🔑 Activate License", callback_data='activate_license')],
             [InlineKeyboardButton("🔙 Back", callback_data='back')]
-        ]
+    ]
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -1024,6 +1171,9 @@ def main():
     app.add_handler(CommandHandler("removepremium", remove_premium_command))
     app.add_handler(CommandHandler("listpremium", list_premium_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    
+    # Message handlers (command handlers'dan sonra)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_license_activation))
     
     # Callback handlers
     app.add_handler(CallbackQueryHandler(button_handler))

@@ -210,33 +210,33 @@ class ArbitrageBot:
             logger.error(f"License verification error: {str(e)}")
             return {'success': False, 'error': str(e)}
 
-   def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
-       """Activate license key and add premium subscription"""
-       with sqlite3.connect('arbitrage.db') as conn:
-           cursor = conn.cursor()
-        
-           # Save license key usage
-           cursor.execute('''
-               INSERT INTO license_keys 
-               (license_key, user_id, username, gumroad_sale_id)
-               VALUES (?, ?, ?, ?)
-           ''', (license_key, user_id, username, sale_data.get('sale_id', '')))
-        
-           # Add premium subscription (30 days)
-           end_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-           cursor.execute('''
-               INSERT OR REPLACE INTO premium_users 
-               (user_id, username, subscription_end)
-               VALUES (?, ?, ?)
-           ''', (user_id, username, end_date))
-        
-           conn.commit()
-        
-           # Update memory cache
-           self.used_license_keys.add(license_key)
-           self.premium_users.add(user_id)
-        
-           logger.info(f"License activated: {license_key} for user {user_id}")
+       def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
+        """Activate license key and add premium subscription"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            
+            # Save license key usage
+            cursor.execute('''
+                INSERT INTO license_keys 
+                (license_key, user_id, username, gumroad_sale_id)
+                VALUES (?, ?, ?, ?)
+            ''', (license_key, user_id, username, sale_data.get('sale_id', '')))
+            
+            # Add premium subscription (30 days)
+            end_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+            cursor.execute('''
+                INSERT OR REPLACE INTO premium_users 
+                (user_id, username, subscription_end)
+                VALUES (?, ?, ?)
+            ''', (user_id, username, end_date))
+            
+            conn.commit()
+            
+            # Update memory cache
+            self.used_license_keys.add(license_key)
+            self.premium_users.add(user_id)
+            
+            logger.info(f"License activated: {license_key} for user {user_id}")
     
     def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
         """Add premium user (admin command)"""

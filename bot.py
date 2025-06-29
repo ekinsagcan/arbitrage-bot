@@ -4,7 +4,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set
 import aiohttp
+from aiohttp import TCPConnector
 import sqlite3
+import time
+from threading import Lock
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -118,6 +121,73 @@ class ArbitrageBot:
         # License key validation cache
         self.used_license_keys = set()
         self.load_used_license_keys()
+
+        # Cache sistemi
+        self.cache_data = {}
+        self.cache_timestamp = 0
+        self.cache_duration = 30  # 30 saniye cache
+        self.cache_lock = Lock()
+        
+        # API request limitleri
+        self.is_fetching = False
+        self.last_fetch_time = 0
+        self.min_fetch_interval = 15  # Minimum 15 saniye arayla fetch
+
+        # Connection pool
+        self.connector = TCPConnector(
+            limit=50,  # Toplam connection sayısı
+            limit_per_host=5,  # Her host için max connection
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+        self.session = None
+        
+        # Request semaphore (aynı anda max 10 request)
+        self.request_semaphore = asyncio.Semaphore(10)
+        
+        self.stats = {
+            'cache_hits': 0,
+            'cache_misses': 0,
+            'api_requests': 0,
+            'concurrent_users': 0
+        }
+
+    async def get_cached_arbitrage_data(self, is_premium: bool = False):
+        # Cache hit/miss sayacı
+        if self.cache_data and (time.time() - self.cache_timestamp) < self.cache_duration:
+            self.stats['cache_hits'] += 1
+        else:
+            self.stats['cache_misses'] += 1
+
+    async def get_session(self):
+        """Paylaşılan session döndür"""
+        if self.session is None or self.session.closed:
+            timeout = aiohttp.ClientTimeout(total=10, connect=5)
+            self.session = aiohttp.ClientSession(
+                connector=self.connector,
+                timeout=timeout,
+                headers={'User-Agent': 'ArbitrageBot/1.0'}
+            )
+        return self.session
+
+    async def fetch_prices_with_volume(self, exchange: str) -> Dict[str, Dict]:
+        """Rate limited price fetch"""
+        async with self.request_semaphore:
+            try:
+                session = await self.get_session()
+                url = self.exchanges[exchange]
+                
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        logger.warning(f"{exchange} returned status {response.status}")
+                        return {}
+                    
+                    data = await response.json()
+                    return self.parse_exchange_data(exchange, data)
+                    
+            except Exception as e:
+                logger.error(f"{exchange} error: {str(e)}")
+                return {}
     
     def init_database(self):
         """Initialize database"""
@@ -164,6 +234,26 @@ class ArbitrageBot:
     )
 ''')
             conn.commit()
+
+    async def start_background_tasks(app):
+        """Background task'ları başlat"""
+        asyncio.create_task(bot.cache_refresh_task())
+
+    async def cache_refresh_task(self):
+        """Her 25 saniyede bir cache'i yenile"""
+        while True:
+            try:
+                await asyncio.sleep(25)  # 25 saniye bekle
+            
+                # Sadece cache eski ise yenile
+                current_time = time.time()
+                if (current_time - self.cache_timestamp) > 20:  # Cache 20 saniyeden eski ise
+                    logger.info("Background cache refresh")
+                    await self._fetch_fresh_data(False)
+                
+            except Exception as e:
+                logger.error(f"Background cache refresh error: {e}")
+                await asyncio.sleep(60)  # Hata durumunda 1 dakika bekle
     
     def load_premium_users(self):
         """Load premium users into memory"""
@@ -454,6 +544,56 @@ class ArbitrageBot:
             logger.error(f"Error parsing {exchange} data: {str(e)}")
         
         return {}
+
+    async def get_cached_arbitrage_data(self, is_premium: bool = False):
+        """Cache'den veri döndür, gerekirse yenile"""
+        current_time = time.time()
+    
+        with self.cache_lock:
+            # Cache geçerli mi kontrol et
+            if (current_time - self.cache_timestamp) < self.cache_duration and self.cache_data:
+                logger.info("Returning cached data")
+                return self.calculate_arbitrage(self.cache_data, is_premium)
+        
+            # Eğer başka bir request zaten fetch yapıyorsa bekle
+            if self.is_fetching:
+                # Son cache'i döndür (varsa)
+                if self.cache_data:
+                    logger.info("Fetch in progress, returning last cached data")
+                    return self.calculate_arbitrage(self.cache_data, is_premium)
+        
+            # Minimum fetch interval kontrolü
+            if (current_time - self.last_fetch_time) < self.min_fetch_interval:
+                if self.cache_data:
+                    logger.info("Rate limit protection, returning cached data")
+                    return self.calculate_arbitrage(self.cache_data, is_premium)
+    
+        # Yeni veri fetch et
+        return await self._fetch_fresh_data(is_premium)
+
+    async def _fetch_fresh_data(self, is_premium: bool):
+        """Yeni veri çek ve cache'le"""
+        with self.cache_lock:
+            if self.is_fetching:  # Double-check locking
+                if self.cache_data:
+                    return self.calculate_arbitrage(self.cache_data, is_premium)
+        
+            self.is_fetching = True
+    
+        try:
+            logger.info("Fetching fresh data from exchanges")
+            all_data = await self.get_all_prices_with_volume()
+        
+            with self.cache_lock:
+                self.cache_data = all_data
+                self.cache_timestamp = time.time()
+                self.last_fetch_time = time.time()
+        
+            return self.calculate_arbitrage(all_data, is_premium)
+    
+        finally:
+            with self.cache_lock:
+                self.is_fetching = False
     
     async def get_all_prices_with_volume(self) -> Dict[str, Dict[str, Dict]]:
         """Fetch price and volume data from all exchanges"""
@@ -703,11 +843,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_arbitrage_check(query):
     await query.edit_message_text("🔄 Scanning prices across exchanges... (Security filters active)")
     
-    all_data = await bot.get_all_prices_with_volume()
     user_id = query.from_user.id
     is_premium = bot.is_premium_user(user_id)
     
-    opportunities = bot.calculate_arbitrage(all_data, is_premium)
+    opportunities = await bot.get_cached_arbitrage_data(is_premium)
     
     if not opportunities:
         await query.edit_message_text(
@@ -1193,6 +1332,8 @@ def main():
         logger.warning("ADMIN_USER_ID not set! Admin commands will not work.")
     
     app = Application.builder().token(TOKEN).build()
+
+    app.post_init = start_background_tasks
     
     # Command handlers
     app.add_handler(CommandHandler("start", start))
@@ -1207,6 +1348,14 @@ def main():
     
     # Callback handlers
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    async def cleanup():
+        if bot.session and not bot.session.closed:
+            await bot.session.close()
+    
+    app.post_stop = cleanup
+    
+    app.run_polling()
     
     logger.info("Advanced Arbitrage Bot starting...")
     logger.info(f"Monitoring {len(bot.exchanges)} exchanges")

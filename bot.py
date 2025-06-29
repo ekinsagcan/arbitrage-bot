@@ -235,9 +235,7 @@ class ArbitrageBot:
 ''')
             conn.commit()
 
-    async def start_background_tasks(app):
-        """Background task'ları başlat"""
-        asyncio.create_task(bot.cache_refresh_task())
+    
 
     async def cache_refresh_task(self):
         """Her 25 saniyede bir cache'i yenile"""
@@ -1071,6 +1069,10 @@ async def show_premium_info(query):
     ]
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def start_background_tasks(app):
+    """Background task'ları başlat"""
+    asyncio.create_task(bot.cache_refresh_task())
 
 async def show_help(query):
     text = """ℹ️ **Bot Usage Guide**

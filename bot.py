@@ -820,9 +820,19 @@ async def handle_license_activation(update: Update, context: ContextTypes.DEFAUL
     user = update.effective_user
     license_key = update.message.text.strip()
     
-    # Check if it looks like a license key
+    # Debug: License key formatını kontrol et
+    logger.info(f"Received license key from user {user.id}: '{license_key}'")
+    logger.info(f"License key length: {len(license_key)}")
+    
+    # License key format kontrolü (Gumroad format: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX)
     if not license_key or len(license_key) < 10:
+        logger.info("License key too short, ignoring")
         return  # Not a license key, ignore
+    
+    # Daha detaylı format kontrolü
+    if not any(c.isalnum() for c in license_key):
+        logger.info("License key contains no alphanumeric characters, ignoring")
+        return
     
     await update.message.reply_text("🔄 Verifying license key...")
     
@@ -834,13 +844,17 @@ async def handle_license_activation(update: Update, context: ContextTypes.DEFAUL
     # Verify with Gumroad
     verification_result = await bot.verify_gumroad_license(license_key)
     
+    logger.info(f"Verification result: {verification_result}")
+    
     if not verification_result.get('success', False):
+        error_msg = verification_result.get('error', 'Unknown error')
         await update.message.reply_text(
-            "❌ Invalid license key.\n\n"
-            "Please check:\n"
-            "• Key is correct (copy-paste recommended)\n"
-            "• Key hasn't been used before\n"
-            "• Purchase was successful\n\n"
+            f"❌ License verification failed.\n\n"
+            f"Error: {error_msg}\n\n"
+            f"Please check:\n"
+            f"• Key is correct (copy-paste recommended)\n"
+            f"• Key hasn't been used before\n"
+            f"• Purchase was successful\n\n"
             f"Contact support: {SUPPORT_USERNAME}"
         )
         return

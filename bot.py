@@ -1301,6 +1301,9 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg = await update.message.reply_text("🔄 Scanning arbitrage opportunities...")
     
+    # 3 saniye bekle
+    await asyncio.sleep(3)
+    
     all_data = await bot.get_all_prices_with_volume()
     is_premium = bot.is_premium_user(user.id)
     

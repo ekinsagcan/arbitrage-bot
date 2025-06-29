@@ -185,11 +185,15 @@ class ArbitrageBot:
     async def verify_gumroad_license(self, license_key: str) -> Dict:
         """Verify license key with Gumroad API"""
         try:
+            # Debug: Environment variables kontrolü
+            logger.info(f"GUMROAD_PRODUCT_ID: {GUMROAD_PRODUCT_ID}")
+            logger.info(f"GUMROAD_ACCESS_TOKEN: {'SET' if GUMROAD_ACCESS_TOKEN else 'EMPTY'}")
+        
             headers = {
                 'Authorization': f'Bearer {GUMROAD_ACCESS_TOKEN}',
                 'Content-Type': 'application/json'
             }
-        
+    
             url = f"https://api.gumroad.com/v2/licenses/verify"
             data = {
                 'product_id': GUMROAD_PRODUCT_ID,
@@ -197,15 +201,27 @@ class ArbitrageBot:
                 'increment_uses_count': 'false'
             }
         
+            # Debug: Request bilgilerini log'la
+            logger.info(f"Verifying license: {license_key}")
+            logger.info(f"Request URL: {url}")
+            logger.info(f"Request data: {data}")
+    
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, headers=headers, json=data) as response:
+                    response_text = await response.text()
+                
+                    # Debug: Response bilgilerini log'la
+                    logger.info(f"Response status: {response.status}")
+                    logger.info(f"Response text: {response_text}")
+                
                     if response.status == 200:
                         result = await response.json()
+                        logger.info(f"Response JSON: {result}")
                         return result
                     else:
-                        logger.error(f"Gumroad API error: {response.status}")
-                        return {'success': False, 'error': 'API Error'}
-            
+                        logger.error(f"Gumroad API error: {response.status} - {response_text}")
+                        return {'success': False, 'error': f'API Error: {response.status}'}
+        
         except Exception as e:
             logger.error(f"License verification error: {str(e)}")
             return {'success': False, 'error': str(e)}

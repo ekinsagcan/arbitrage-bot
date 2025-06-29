@@ -209,8 +209,8 @@ class ArbitrageBot:
         except Exception as e:
             logger.error(f"License verification error: {str(e)}")
             return {'success': False, 'error': str(e)}
-
-       def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
+            
+    def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
         """Activate license key and add premium subscription"""
         with sqlite3.connect('arbitrage.db') as conn:
             cursor = conn.cursor()

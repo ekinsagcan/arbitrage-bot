@@ -375,19 +375,31 @@ class ArbitrageBot:
             
             logger.info(f"License activated: {license_key} for user {user_id}")
     
-    def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
-        """Add premium user (admin command)"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-            cursor.execute('''
-                INSERT OR REPLACE INTO premium_users 
-                (user_id, username, subscription_end)
-                VALUES (?, ?, ?)
-            ''', (user_id, username, end_date))
-            conn.commit()
-            self.premium_users.add(user_id)
-            logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
+def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
+    end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+    db = Database()
+    
+    # Önce kullanıcıyı users tablosuna ekleyelim
+    db.execute('''
+        INSERT INTO users (user_id, username)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO NOTHING
+    ''', (user_id, username))
+    
+    # Premium kullanıcı ekleyelim
+    db.execute('''
+        INSERT INTO premium_users (user_id, username, subscription_end)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (user_id) 
+        DO UPDATE SET 
+            username = EXCLUDED.username,
+            subscription_end = EXCLUDED.subscription_end
+    ''', (user_id, username, end_date))
+    
+    # Memory cache'i güncelle
+    self.premium_users.add(user_id)
+    db.close()
+    logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
     
     def remove_premium_user(self, user_id: int):
         """Remove premium user (admin command)"""

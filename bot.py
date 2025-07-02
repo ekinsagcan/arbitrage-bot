@@ -760,14 +760,14 @@ class ArbitrageBot:
         return user_id in self.premium_users
     
     def save_user(self, user_id: int, username: str):
-        """Save user to database"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO users (user_id, username)
-                VALUES (?, ?)
-            ''', (user_id, username))
-            conn.commit()
+        db = Database()
+        db.execute('''
+            INSERT INTO users (user_id, username)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET username = EXCLUDED.username
+        ''', (user_id, username))
+        db.close()
     
     def save_arbitrage_data(self, opportunity: Dict):
         """Save arbitrage data"""

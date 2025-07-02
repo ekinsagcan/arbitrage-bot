@@ -707,6 +707,29 @@ class ArbitrageBot:
         for exchange_data in all_data.values():
             if exchange_data:
                 all_symbols.update(exchange_data.keys())
+
+        for symbol in common_symbols:
+            # Check problematic coins first
+            if symbol in self.problematic_coins:
+                continue
+            
+            # Collect all exchange data for this symbol
+            exchange_data = {ex: all_data[ex][symbol] for ex in all_data if symbol in all_data[ex]}
+        
+            # Safety check
+            if not self.is_symbol_safe(symbol, exchange_data):
+                continue
+            
+        if len(exchange_data) >= 2:
+            # Sort by price
+            sorted_exchanges = sorted(exchange_data.items(), key=lambda x: x[1]['price'])
+            lowest_ex, lowest_data = sorted_exchanges[0]
+            highest_ex, highest_data = sorted_exchanges[-1]
+            
+            # Check if transfer is possible between these exchanges
+            if not self.can_transfer_between(symbol, lowest_ex, highest_ex):
+                logger.info(f"Skipping {symbol}: cannot transfer between {lowest_ex} and {highest_ex}")
+                continue
         
         # Filter symbols that appear in at least 2 exchanges
         common_symbols = set()

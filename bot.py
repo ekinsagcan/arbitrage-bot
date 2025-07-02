@@ -401,13 +401,14 @@ def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
     db.close()
     logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
     
-    def remove_premium_user(self, user_id: int):
-        """Remove premium user (admin command)"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM premium_users WHERE user_id = ?', (user_id,))
-            conn.commit()
-            self.premium_users.discard(user_id)
+def remove_premium_user(self, user_id: int):
+    db = Database()
+    db.execute('DELETE FROM premium_users WHERE user_id = %s', (user_id,))
+    db.close()
+    
+    # Memory cache'ten kaldır
+    self.premium_users.discard(user_id)
+    logger.info(f"Removed premium user: {user_id}")
     
     def normalize_symbol(self, symbol: str, exchange: str) -> str:
         """Normalize symbol format across exchanges"""

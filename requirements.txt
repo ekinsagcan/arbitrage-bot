@@ -1,4 +1,9 @@
-psycopg2-binary==2.9.9
-python-telegram-bot[socks]==20.3
-aiohttp==3.8.5
+# Telegram bot kütüphanesi (v20+ öncelikli, v13 fallback)
+python-telegram-bot>=20.0,<21.0Add commentMore actions
+
+# HTTP istekleri için
+aiohttp>=3.8.0,<4.0.0
+requests>=2.25.0,<3.0.0
+python-telegram-bot==20.6
+aiohttp==3.9.3
 

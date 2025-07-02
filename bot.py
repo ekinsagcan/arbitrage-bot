@@ -159,6 +159,25 @@ class ArbitrageBot:
         else:
             self.stats['cache_misses'] += 1
 
+    async def get_admin_arbitrage_data(self, is_premium: bool = False):
+        """Adminler için Huobi hariç arbitraj verisi getir"""
+        current_time = time.time()
+    
+        with self.cache_lock:
+            # Cache geçerli mi kontrol et
+            if (current_time - self.cache_timestamp) < self.cache_duration and self.cache_data:
+                logger.info("Returning cached data for admin")
+                # Huobi verilerini filtrele
+                filtered_data = {ex: data for ex, data in self.cache_data.items() if ex != 'huobi'}
+                return self.calculate_arbitrage(filtered_data, is_premium)
+        
+        # Yeni veri çek
+        all_data = await self.get_all_prices_with_volume()
+        # Huobi verilerini filtrele
+        filtered_data = {ex: data for ex, data in all_data.items() if ex != 'huobi'}
+        
+        return self.calculate_arbitrage(filtered_data, is_premium)
+
     async def get_session(self):
         """Paylaşılan session döndür"""
         if self.session is None or self.session.closed:
@@ -1294,6 +1313,40 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(text)
 
+async def admin_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sadece adminler için Huobi hariç arbitraj kontrolü"""
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Access denied. Admin only command.")
+        return
+    
+    user = update.effective_user
+    bot.save_user(user.id, user.username or "")
+    
+    msg = await update.message.reply_text("🔍 [ADMIN] Scanning exchanges (excluding Huobi)...")
+    
+    await asyncio.sleep(3)
+    
+    opportunities = await bot.get_admin_arbitrage_data(True)  # Admin olduğu için premium=True
+    
+    if not opportunities:
+        await msg.edit_text("❌ No safe arbitrage opportunities found (Huobi excluded).")
+        return
+    
+    text = "💎 **Admin Arbitrage (Huobi Excluded)**\n\n"
+    
+    for i, opp in enumerate(opportunities[:20], 1):  # Max 20 fırsat göster
+        trust_icon = "✅" if opp['symbol'] in bot.trusted_symbols else "🔍"
+        text += f"{i}. {trust_icon} {opp['symbol']}\n"
+        text += f"   ⬇️ Buy: {opp['buy_exchange']} ${opp['buy_price']:.6f}\n"
+        text += f"   ⬆️ Sell: {opp['sell_exchange']} ${opp['sell_price']:.6f}\n"
+        text += f"   💰 Profit: {opp['profit_percent']:.2f}%\n"
+        text += f"   📊 Volume: ${opp['avg_volume']:,.0f}\n\n"
+        
+        # Veriyi kaydet
+        bot.save_arbitrage_data(opp)
+    
+    await msg.edit_text(text)
+
 # Quick check command
 async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1351,6 +1404,7 @@ def main():
     app.add_handler(CommandHandler("removepremium", remove_premium_command))
     app.add_handler(CommandHandler("listpremium", list_premium_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("admincheck", admin_check_command))
     
     # Message handlers (command handlers'dan sonra)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_license_activation))

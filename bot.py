@@ -1248,6 +1248,53 @@ async def remove_premium_command(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
+async def add_blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Admin only command.")
+        return
+        
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text("Usage: /addblacklist SYMBOL REASON\nExample: /addblacklist LUNAUSDT 'Different networks'")
+        return
+        
+    symbol = context.args[0].upper()
+    reason = ' '.join(context.args[1:])
+    
+    bot.problematic_coins[symbol] = reason
+    await update.message.reply_text(f"✅ Added {symbol} to blacklist: {reason}")
+
+async def remove_blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Admin only command.")
+        return
+        
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text("Usage: /removeblacklist SYMBOL\nExample: /removeblacklist LUNAUSDT")
+        return
+        
+    symbol = context.args[0].upper()
+    
+    if symbol in bot.problematic_coins:
+        del bot.problematic_coins[symbol]
+        await update.message.reply_text(f"✅ Removed {symbol} from blacklist")
+    else:
+        await update.message.reply_text(f"❌ {symbol} not found in blacklist")
+
+async def list_blacklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Admin only command.")
+        return
+        
+    if not bot.problematic_coins:
+        await update.message.reply_text("Blacklist is empty")
+        return
+        
+    text = "⛔ Blacklisted Coins:\n\n"
+    for symbol, reason in bot.problematic_coins.items():
+        text += f"• {symbol}: {reason}\n"
+        
+    await update.message.reply_text(text)
+
 async def add_premium_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         await update.message.reply_text("❌ Access denied. Admin only command.")

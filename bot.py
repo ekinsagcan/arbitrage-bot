@@ -640,16 +640,16 @@ class ArbitrageBot:
         return exchange_data
     
     def is_symbol_safe(self, symbol: str, exchange_data: Dict[str, Dict]) -> bool:
-    """Check if symbol is safe for arbitrage with enhanced checks"""
+        """Check if symbol is safe for arbitrage with enhanced checks"""
     
-    # 0. Check problematic coins
-    if symbol in self.problematic_coins:
-        logger.info(f"Skipping {symbol}: {self.problematic_coins[symbol]}")
-        return False
+        # 0. Check problematic coins
+        if symbol in self.problematic_coins:
+            logger.info(f"Skipping {symbol}: {self.problematic_coins[symbol]}")
+            return False
         
-    # 1. Trusted symbols list
-    if symbol in self.trusted_symbols:
-        return True
+        # 1. Trusted symbols list
+        if symbol in self.trusted_symbols:
+            return True
         
         # 2. Suspicious symbol check
         base_symbol = symbol.replace('USDT', '').replace('USDC', '').replace('BUSD', '')

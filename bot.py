@@ -806,25 +806,21 @@ def remove_premium_user(self, user_id: int):
             ))
             conn.commit()
     
-    def get_premium_users_list(self) -> List[Dict]:
-        """Get list of premium users"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT user_id, username, subscription_end, added_date 
-                FROM premium_users 
-                ORDER BY added_date DESC
-            ''')
-            results = cursor.fetchall()
-            return [
-                {
-                    'user_id': row[0],
-                    'username': row[1] or 'Unknown',
-                    'subscription_end': row[2],
-                    'added_date': row[3]
-                } for row in results
-            ]
-
+def get_premium_users_list(self) -> List[Dict]:
+    db = Database()
+    results = db.fetch_all('''
+        SELECT user_id, username, subscription_end, added_date 
+        FROM premium_users 
+        ORDER BY added_date DESC
+    ''')
+    db.close()
+    
+    return [{
+        'user_id': row[0],
+        'username': row[1] or 'Unknown',
+        'subscription_end': row[2],
+        'added_date': row[3]
+    } for row in results]
     def get_user_id_by_username(self, username: str) -> int:
         """Get user ID by username from database"""
         with sqlite3.connect('arbitrage.db') as conn:

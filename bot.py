@@ -371,6 +371,20 @@ class ArbitrageBot:
             conn.commit()
             self.premium_users.add(user_id)
             logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
+
+    def can_transfer_between(self, symbol: str, exchange1: str, exchange2: str) -> bool:
+        """Check if a coin can be transferred between two exchanges"""
+        # Check global problematic coins
+        if symbol in self.problematic_coins:
+            return False
+        
+        # Check exchange-specific limitations
+        if exchange1 in self.withdrawal_limitations and symbol in self.withdrawal_limitations[exchange1]:
+            return False
+        if exchange2 in self.withdrawal_limitations and symbol in self.withdrawal_limitations[exchange2]:
+            return False
+        
+        return True
     
     def remove_premium_user(self, user_id: int):
         """Remove premium user (admin command)"""

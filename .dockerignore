@@ -1,9 +1,9 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+**/__pycache__
+*.py[cod]
 .env
-Dockerfile.dev
-README.md
 .git
 .gitignore
+*.md
+*.log
+Dockerfile.dev
+test/

@@ -118,6 +118,9 @@ class ArbitrageBot:
         self.init_database()
         self.load_premium_users()
 
+        self.max_profit_threshold = 20.0  # Normal kullanıcılar için %20 limit
+        self.admin_max_profit_threshold = 40.0  # Adminler için %40 limit
+
         # License key validation cache
         self.used_license_keys = set()
         self.load_used_license_keys()

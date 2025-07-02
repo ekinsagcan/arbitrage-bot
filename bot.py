@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set
 import aiohttp
 from aiohttp import TCPConnector
-from database import Database
+import sqlite3
 import time
 from threading import Lock
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -155,8 +155,6 @@ class ArbitrageBot:
             'concurrent_users': 0
         }
 
-    self.db = Database()
-
     async def get_cached_arbitrage_data(self, is_premium: bool = False):
         # Cache hit/miss sayacı
         if self.cache_data and (time.time() - self.cache_timestamp) < self.cache_duration:
@@ -223,50 +221,50 @@ class ArbitrageBot:
                 return {}
     
     def init_database(self):
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id BIGINT PRIMARY KEY,
-                username VARCHAR(255),
-                subscription_end DATE,
-                is_premium BOOLEAN DEFAULT FALSE,
-                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS premium_users (
-                user_id BIGINT PRIMARY KEY REFERENCES users(user_id),
-                username VARCHAR(255),
-                added_by_admin BOOLEAN DEFAULT TRUE,
-                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                subscription_end DATE
-            )
-        """)
-    
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS arbitrage_data (
-                id SERIAL PRIMARY KEY,
-                symbol VARCHAR(20),
-                exchange1 VARCHAR(50),
-                exchange2 VARCHAR(50),
-                price1 DECIMAL(20, 10),
-                price2 DECIMAL(20, 10),
-                profit_percent DECIMAL(10, 2),
-                volume_24h DECIMAL(30, 2),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS license_keys (
-                license_key VARCHAR(100) PRIMARY KEY,
-                user_id BIGINT,
-                username VARCHAR(255),
-                used_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                gumroad_sale_id VARCHAR(100)
-            )
-        """)
-        self.db.close()
+        """Initialize database"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    subscription_end DATE,
+                    is_premium BOOLEAN DEFAULT FALSE,
+                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS arbitrage_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT,
+                    exchange1 TEXT,
+                    exchange2 TEXT,
+                    price1 REAL,
+                    price2 REAL,
+                    profit_percent REAL,
+                    volume_24h REAL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS premium_users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    added_by_admin BOOLEAN DEFAULT TRUE,
+                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    subscription_end DATE
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS license_keys (
+                     license_key TEXT PRIMARY KEY,
+                     user_id INTEGER,
+                     username TEXT,
+                     used_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                     gumroad_sale_id TEXT
+    )
+''')
+            conn.commit()
 
     
 
@@ -286,24 +284,22 @@ class ArbitrageBot:
                 logger.error(f"Background cache refresh error: {e}")
                 await asyncio.sleep(60)  # Hata durumunda 1 dakika bekle
     
-def load_premium_users(self):
-    db = Database()
-    results = db.fetch_all('''
-        SELECT user_id FROM premium_users 
-        WHERE subscription_end >= CURRENT_DATE
-    ''')
-    db.close()
-    
-    self.premium_users = {row[0] for row in results}
-    logger.info(f"Loaded {len(self.premium_users)} active premium users")
+    def load_premium_users(self):
+        """Load premium users into memory"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT user_id FROM premium_users')
+            results = cursor.fetchall()
+            self.premium_users = {row[0] for row in results}
+            logger.info(f"Loaded {len(self.premium_users)} premium users")
 
-def load_used_license_keys(self):
-    db = Database()
-    results = db.fetch_all('SELECT license_key FROM license_keys')
-    db.close()
-    
-    self.used_license_keys = {row[0] for row in results}
-    logger.info(f"Loaded {len(self.used_license_keys)} used license keys")
+    def load_used_license_keys(self):
+        """Load used license keys into memory"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT license_key FROM license_keys')
+            results = cursor.fetchall()
+            self.used_license_keys = {row[0] for row in results}
 
     async def verify_gumroad_license(self, license_key: str) -> Dict:
         """Verify license key with Gumroad API"""
@@ -349,68 +345,55 @@ def load_used_license_keys(self):
             logger.error(f"License verification error: {str(e)}")
             return {'success': False, 'error': str(e)}
             
-def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
-    db = Database()
+    def activate_license_key(self, license_key: str, user_id: int, username: str, sale_data: Dict):
+        """Activate license key and add premium subscription"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            
+            # Save license key usage
+            cursor.execute('''
+                INSERT INTO license_keys 
+                (license_key, user_id, username, gumroad_sale_id)
+                VALUES (?, ?, ?, ?)
+            ''', (license_key, user_id, username, sale_data.get('sale_id', '')))
+            
+            # Add premium subscription (30 days)
+            end_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+            cursor.execute('''
+                INSERT OR REPLACE INTO premium_users 
+                (user_id, username, subscription_end)
+                VALUES (?, ?, ?)
+            ''', (user_id, username, end_date))
+            
+            conn.commit()
+            
+            # Update memory cache
+            self.used_license_keys.add(license_key)
+            self.premium_users.add(user_id)
+            
+            logger.info(f"License activated: {license_key} for user {user_id}")
     
-    # License key kaydı
-    db.execute('''
-        INSERT INTO license_keys 
-        (license_key, user_id, username, gumroad_sale_id)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (license_key) DO NOTHING
-    ''', (license_key, user_id, username, sale_data.get('sale_id', '')))
+    def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
+        """Add premium user (admin command)"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+            cursor.execute('''
+                INSERT OR REPLACE INTO premium_users 
+                (user_id, username, subscription_end)
+                VALUES (?, ?, ?)
+            ''', (user_id, username, end_date))
+            conn.commit()
+            self.premium_users.add(user_id)
+            logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
     
-    # Premium üyelik ekleme
-    end_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-    db.execute('''
-        INSERT INTO premium_users (user_id, username, subscription_end)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-            username = EXCLUDED.username,
-            subscription_end = EXCLUDED.subscription_end
-    ''', (user_id, username, end_date))
-    
-    # Cache güncelleme
-    self.used_license_keys.add(license_key)
-    self.premium_users.add(user_id)
-    db.close()
-    logger.info(f"License activated: {license_key} for user {user_id}")
-    
-def add_premium_user(self, user_id: int, username: str = "", days: int = 30):
-    end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-    db = Database()
-    
-    # Önce kullanıcıyı users tablosuna ekleyelim
-    db.execute('''
-        INSERT INTO users (user_id, username)
-        VALUES (%s, %s)
-        ON CONFLICT (user_id) DO NOTHING
-    ''', (user_id, username))
-    
-    # Premium kullanıcı ekleyelim
-    db.execute('''
-        INSERT INTO premium_users (user_id, username, subscription_end)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-            username = EXCLUDED.username,
-            subscription_end = EXCLUDED.subscription_end
-    ''', (user_id, username, end_date))
-    
-    # Memory cache'i güncelle
-    self.premium_users.add(user_id)
-    db.close()
-    logger.info(f"Added premium user: {user_id} (@{username}) for {days} days")
-    
-def remove_premium_user(self, user_id: int):
-    db = Database()
-    db.execute('DELETE FROM premium_users WHERE user_id = %s', (user_id,))
-    db.close()
-    
-    # Memory cache'ten kaldır
-    self.premium_users.discard(user_id)
-    logger.info(f"Removed premium user: {user_id}")
+    def remove_premium_user(self, user_id: int):
+        """Remove premium user (admin command)"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM premium_users WHERE user_id = ?', (user_id,))
+            conn.commit()
+            self.premium_users.discard(user_id)
     
     def normalize_symbol(self, symbol: str, exchange: str) -> str:
         """Normalize symbol format across exchanges"""
@@ -771,56 +754,57 @@ def remove_premium_user(self, user_id: int):
         return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
     
     def is_premium_user(self, user_id: int) -> bool:
-        db = Database()
-        result = db.fetch_one('''
-            SELECT 1 FROM premium_users 
-            WHERE user_id = %s AND subscription_end >= CURRENT_DATE
-        ''', (user_id,))
-        db.close()
-        return result is not None
+        """Check if user is premium"""
+        return user_id in self.premium_users
     
     def save_user(self, user_id: int, username: str):
-        db = Database()
-        db.execute('''
-            INSERT INTO users (user_id, username)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id) 
-            DO UPDATE SET username = EXCLUDED.username
-        ''', (user_id, username))
-        db.close()
+        """Save user to database"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO users (user_id, username)
+                VALUES (?, ?)
+            ''', (user_id, username))
+            conn.commit()
     
-def save_arbitrage_data(self, opportunity: Dict):
-    db = Database()
-    db.execute('''
-        INSERT INTO arbitrage_data 
-        (symbol, exchange1, exchange2, price1, price2, profit_percent, volume_24h)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    ''', (
-        opportunity['symbol'],
-        opportunity['buy_exchange'],
-        opportunity['sell_exchange'],
-        opportunity['buy_price'],
-        opportunity['sell_price'],
-        opportunity['profit_percent'],
-        opportunity['avg_volume']
-    ))
-    db.close()
+    def save_arbitrage_data(self, opportunity: Dict):
+        """Save arbitrage data"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO arbitrage_data 
+                (symbol, exchange1, exchange2, price1, price2, profit_percent, volume_24h)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                opportunity['symbol'],
+                opportunity['buy_exchange'],
+                opportunity['sell_exchange'],
+                opportunity['buy_price'],
+                opportunity['sell_price'],
+                opportunity['profit_percent'],
+                opportunity['avg_volume']
+            ))
+            conn.commit()
     
-def get_premium_users_list(self) -> List[Dict]:
-    db = Database()
-    results = db.fetch_all('''
-        SELECT user_id, username, subscription_end, added_date 
-        FROM premium_users 
-        ORDER BY added_date DESC
-    ''')
-    db.close()
-    
-    return [{
-        'user_id': row[0],
-        'username': row[1] or 'Unknown',
-        'subscription_end': row[2],
-        'added_date': row[3]
-    } for row in results]
+    def get_premium_users_list(self) -> List[Dict]:
+        """Get list of premium users"""
+        with sqlite3.connect('arbitrage.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT user_id, username, subscription_end, added_date 
+                FROM premium_users 
+                ORDER BY added_date DESC
+            ''')
+            results = cursor.fetchall()
+            return [
+                {
+                    'user_id': row[0],
+                    'username': row[1] or 'Unknown',
+                    'subscription_end': row[2],
+                    'added_date': row[3]
+                } for row in results
+            ]
+
     def get_user_id_by_username(self, username: str) -> int:
         """Get user ID by username from database"""
         with sqlite3.connect('arbitrage.db') as conn:

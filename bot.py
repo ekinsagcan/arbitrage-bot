@@ -297,13 +297,13 @@ def load_premium_users(self):
     self.premium_users = {row[0] for row in results}
     logger.info(f"Loaded {len(self.premium_users)} active premium users")
 
-    def load_used_license_keys(self):
-        """Load used license keys into memory"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT license_key FROM license_keys')
-            results = cursor.fetchall()
-            self.used_license_keys = {row[0] for row in results}
+def load_used_license_keys(self):
+    db = Database()
+    results = db.fetch_all('SELECT license_key FROM license_keys')
+    db.close()
+    
+    self.used_license_keys = {row[0] for row in results}
+    logger.info(f"Loaded {len(self.used_license_keys)} used license keys")
 
     async def verify_gumroad_license(self, license_key: str) -> Dict:
         """Verify license key with Gumroad API"""

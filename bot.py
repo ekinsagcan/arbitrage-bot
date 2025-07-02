@@ -1456,6 +1456,10 @@ def main():
     app.add_handler(CommandHandler("removepremium", remove_premium_command))
     app.add_handler(CommandHandler("listpremium", list_premium_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("addblacklist", add_blacklist_command))
+    app.add_handler(CommandHandler("removeblacklist", remove_blacklist_command))
+    app.add_handler(CommandHandler("listblacklist", list_blacklist_command))
+    
     
     # Message handlers (command handlers'dan sonra)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_license_activation))

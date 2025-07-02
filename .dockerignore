@@ -1,9 +1,0 @@
-**/__pycache__
-*.py[cod]
-.env
-.git
-.gitignore
-*.md
-*.log
-Dockerfile.dev
-test/

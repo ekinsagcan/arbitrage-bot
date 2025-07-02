@@ -766,16 +766,16 @@ class ArbitrageBot:
     
         return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
             
-            if len(exchange_data) >= 2:
-                # Sort by price
-                sorted_exchanges = sorted(exchange_data.items(), key=lambda x: x[1]['price'])
-                lowest_ex, lowest_data = sorted_exchanges[0]
-                highest_ex, highest_data = sorted_exchanges[-1]
+                if len(exchange_data) >= 2:
+                    # Sort by price
+                    sorted_exchanges = sorted(exchange_data.items(), key=lambda x: x[1]['price'])
+                    lowest_ex, lowest_data = sorted_exchanges[0]
+                    highest_ex, highest_data = sorted_exchanges[-1]
             
-                # Check if transfer is possible between these exchanges
-                if not self.can_transfer_between(symbol, lowest_ex, highest_ex):
-                    logger.info(f"Skipping {symbol}: cannot transfer between {lowest_ex} and {highest_ex}")
-                    continue
+                    # Check if transfer is possible between these exchanges
+                    if not self.can_transfer_between(symbol, lowest_ex, highest_ex):
+                        logger.info(f"Skipping {symbol}: cannot transfer between {lowest_ex} and {highest_ex}")
+                        continue
         
             # Filter symbols that appear in at least 2 exchanges
             common_symbols = set()

@@ -787,24 +787,22 @@ def remove_premium_user(self, user_id: int):
         ''', (user_id, username))
         db.close()
     
-    def save_arbitrage_data(self, opportunity: Dict):
-        """Save arbitrage data"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO arbitrage_data 
-                (symbol, exchange1, exchange2, price1, price2, profit_percent, volume_24h)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                opportunity['symbol'],
-                opportunity['buy_exchange'],
-                opportunity['sell_exchange'],
-                opportunity['buy_price'],
-                opportunity['sell_price'],
-                opportunity['profit_percent'],
-                opportunity['avg_volume']
-            ))
-            conn.commit()
+def save_arbitrage_data(self, opportunity: Dict):
+    db = Database()
+    db.execute('''
+        INSERT INTO arbitrage_data 
+        (symbol, exchange1, exchange2, price1, price2, profit_percent, volume_24h)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    ''', (
+        opportunity['symbol'],
+        opportunity['buy_exchange'],
+        opportunity['sell_exchange'],
+        opportunity['buy_price'],
+        opportunity['sell_price'],
+        opportunity['profit_percent'],
+        opportunity['avg_volume']
+    ))
+    db.close()
     
 def get_premium_users_list(self) -> List[Dict]:
     db = Database()

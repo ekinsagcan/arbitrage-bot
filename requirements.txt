@@ -1,5 +1,4 @@
 psycopg2-binary==2.9.9
-python-dotenv==1.0.0
-python-telegram-bot==20.3
+python-telegram-bot[socks]==20.3
 aiohttp==3.8.5
 

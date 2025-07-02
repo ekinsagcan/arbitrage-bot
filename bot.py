@@ -767,57 +767,7 @@ class ArbitrageBot:
     
         return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
 
-            
-               
-        
-            # Filter symbols that appear in at least 2 exchanges
-            common_symbols = set()
-            for symbol in all_symbols:
-                exchanges_with_symbol = sum(1 for exchange_data in all_data.values() if symbol in exchange_data)
-                if exchanges_with_symbol >= 2:
-                    common_symbols.add(symbol)
-        
-            logger.info(f"Found {len(common_symbols)} common symbols")
-        
-            for symbol in common_symbols:
-                # Collect all exchange data for this symbol
-                exchange_data = {ex: all_data[ex][symbol] for ex in all_data if symbol in all_data[ex]}
-            
-                # Safety check
-                if not self.is_symbol_safe(symbol, exchange_data):
-                    continue
-            
-                if len(exchange_data) >= 2:
-                    # Sort by price
-                    sorted_exchanges = sorted(exchange_data.items(), key=lambda x: x[1]['price'])
-                    lowest_ex, lowest_data = sorted_exchanges[0]
-                    highest_ex, highest_data = sorted_exchanges[-1]
-                
-                    lowest_price = lowest_data['price']
-                    highest_price = highest_data['price']
-                
-                    if lowest_price > 0:
-                        profit_percent = ((highest_price - lowest_price) / lowest_price) * 100
-                    
-                        opportunity = {
-                            'symbol': symbol,
-                            'buy_exchange': lowest_ex,
-                            'sell_exchange': highest_ex,
-                            'buy_price': lowest_price,
-                            'sell_price': highest_price,
-                            'profit_percent': profit_percent,
-                            'buy_volume': lowest_data.get('volume', 0),
-                            'sell_volume': highest_data.get('volume', 0),
-                            'avg_volume': (lowest_data.get('volume', 0) + highest_data.get('volume', 0)) / 2
-                        }
-                    
-                        if self.validate_arbitrage_opportunity(opportunity):
-                            # For free users, only show opportunities up to 2%
-                            if not is_premium and opportunity['profit_percent'] > self.free_user_max_profit:
-                                continue
-                            opportunities.append(opportunity)
-        
-            return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
+         
     
     def is_premium_user(self, user_id: int) -> bool:
         """Check if user is premium"""

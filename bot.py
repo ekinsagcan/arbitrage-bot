@@ -163,23 +163,32 @@ class ArbitrageBot:
             self.stats['cache_misses'] += 1
 
     async def get_admin_arbitrage_data(self, is_premium: bool = False):
-        """Adminler için Huobi hariç arbitraj verisi getir"""
-        current_time = time.time()
+        """Adminler için Huobi hariç ve yüksek limitli arbitraj verisi getir"""
+        # Orijinal limiti sakla
+        original_limit = self.max_profit_threshold
     
-        with self.cache_lock:
-            # Cache geçerli mi kontrol et
-            if (current_time - self.cache_timestamp) < self.cache_duration and self.cache_data:
-                logger.info("Returning cached data for admin")
-                # Huobi verilerini filtrele
-                filtered_data = {ex: data for ex, data in self.cache_data.items() if ex != 'huobi'}
-                return self.calculate_arbitrage(filtered_data, is_premium)
+        try:
+            # Admin limitini geçici olarak ayarla
+            self.max_profit_threshold = self.admin_max_profit_threshold
         
-        # Yeni veri çek
-        all_data = await self.get_all_prices_with_volume()
-        # Huobi verilerini filtrele
-        filtered_data = {ex: data for ex, data in all_data.items() if ex != 'huobi'}
+            current_time = time.time()
+            with self.cache_lock:
+                if (current_time - self.cache_timestamp) < self.cache_duration and self.cache_data:
+                    logger.info("Returning cached data for admin")
+                    # Huobi verilerini filtrele
+                    filtered_data = {ex: data for ex, data in self.cache_data.items() if ex != 'huobi'}
+                    return self.calculate_arbitrage(filtered_data, True)  # Admin olduğu için premium=True
+
+            # Yeni veri çek
+            all_data = await self.get_all_prices_with_volume()
+            # Huobi verilerini filtrele
+            filtered_data = {ex: data for ex, data in all_data.items() if ex != 'huobi'}
         
-        return self.calculate_arbitrage(filtered_data, is_premium)
+            return self.calculate_arbitrage(filtered_data, True)  # Admin olduğu için premium=True
+    
+        finally:
+            # Orijinal limiti geri yükle
+            self.max_profit_threshold = original_limit
 
     async def get_session(self):
         """Paylaşılan session döndür"""
@@ -1317,7 +1326,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 async def admin_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sadece adminler için Huobi hariç arbitraj kontrolü"""
+    """Sadece adminler için Huobi hariç ve %40 limitli arbitraj kontrolü"""
     if update.effective_user.id != ADMIN_USER_ID:
         await update.message.reply_text("❌ Access denied. Admin only command.")
         return
@@ -1325,17 +1334,17 @@ async def admin_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     bot.save_user(user.id, user.username or "")
     
-    msg = await update.message.reply_text("🔍 [ADMIN] Scanning exchanges (excluding Huobi)...")
+    msg = await update.message.reply_text("🔍 [ADMIN] Scanning exchanges (Huobi excluded, 40% max profit)...")
     
     await asyncio.sleep(3)
     
-    opportunities = await bot.get_admin_arbitrage_data(True)  # Admin olduğu için premium=True
+    opportunities = await bot.get_admin_arbitrage_data()
     
     if not opportunities:
-        await msg.edit_text("❌ No safe arbitrage opportunities found (Huobi excluded).")
+        await msg.edit_text("❌ No arbitrage opportunities found (Huobi excluded, max 40% profit).")
         return
     
-    text = "💎 **Admin Arbitrage (Huobi Excluded)**\n\n"
+    text = "💎 **Admin Arbitrage (Huobi Excluded, Max 40% Profit)**\n\n"
     
     for i, opp in enumerate(opportunities[:20], 1):  # Max 20 fırsat göster
         trust_icon = "✅" if opp['symbol'] in bot.trusted_symbols else "🔍"

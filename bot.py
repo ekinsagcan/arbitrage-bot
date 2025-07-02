@@ -286,14 +286,16 @@ class ArbitrageBot:
                 logger.error(f"Background cache refresh error: {e}")
                 await asyncio.sleep(60)  # Hata durumunda 1 dakika bekle
     
-    def load_premium_users(self):
-        """Load premium users into memory"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT user_id FROM premium_users')
-            results = cursor.fetchall()
-            self.premium_users = {row[0] for row in results}
-            logger.info(f"Loaded {len(self.premium_users)} premium users")
+def load_premium_users(self):
+    db = Database()
+    results = db.fetch_all('''
+        SELECT user_id FROM premium_users 
+        WHERE subscription_end >= CURRENT_DATE
+    ''')
+    db.close()
+    
+    self.premium_users = {row[0] for row in results}
+    logger.info(f"Loaded {len(self.premium_users)} active premium users")
 
     def load_used_license_keys(self):
         """Load used license keys into memory"""

@@ -1,25 +1,24 @@
-# Temel imaj (hafif sürüm)
-FROM python:3.9-slim-buster
+# 1. Aşama: Build için temel imaj
+FROM python:3.9-slim-buster as builder
 
-# Çalışma dizini oluştur
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# 2. Aşama: Runtime imajı
+FROM python:3.9-slim-buster
 WORKDIR /app
 
-# Önce bağımlılıkları kopyala (build cache optimizasyonu)
-COPY requirements.txt .
+# 3. Sadece gerekli dosyaları kopyala
+COPY --from=builder /root/.local /root/.local
+COPY bot.py database.py ./
 
-# Bağımlılıkları yükle
-RUN pip install --no-cache-dir -r requirements.txt
+# 4. PATH ayarı
+ENV PATH=/root/.local/bin:$PATH
 
-# Tüm proje dosyalarını kopyala
-COPY . .
-
-# Environment variables için gerekli paket
+# 5. Runtime bağımlılıkları
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libpq5 && \
+    rm -rf /var/lib/apt/lists/*
 
-# PostgreSQL bağlantıları için gerekli kütüphane
-RUN apt-get update && apt-get install -y gcc python3-dev
-
-# Uygulamayı çalıştır
 CMD ["python", "bot.py"]

@@ -756,8 +756,13 @@ class ArbitrageBot:
         return sorted(opportunities, key=lambda x: x['profit_percent'], reverse=True)
     
     def is_premium_user(self, user_id: int) -> bool:
-        """Check if user is premium"""
-        return user_id in self.premium_users
+        db = Database()
+        result = db.fetch_one('''
+            SELECT 1 FROM premium_users 
+            WHERE user_id = %s AND subscription_end >= CURRENT_DATE
+        ''', (user_id,))
+        db.close()
+        return result is not None
     
     def save_user(self, user_id: int, username: str):
         db = Database()

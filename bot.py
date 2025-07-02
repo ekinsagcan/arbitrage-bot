@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set
 import aiohttp
 from aiohttp import TCPConnector
-import sqlite3
+from database import Database
 import time
 from threading import Lock
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -155,6 +155,8 @@ class ArbitrageBot:
             'concurrent_users': 0
         }
 
+    self.db = Database()
+
     async def get_cached_arbitrage_data(self, is_premium: bool = False):
         # Cache hit/miss sayacı
         if self.cache_data and (time.time() - self.cache_timestamp) < self.cache_duration:
@@ -221,50 +223,50 @@ class ArbitrageBot:
                 return {}
     
     def init_database(self):
-        """Initialize database"""
-        with sqlite3.connect('arbitrage.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    subscription_end DATE,
-                    is_premium BOOLEAN DEFAULT FALSE,
-                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS arbitrage_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT,
-                    exchange1 TEXT,
-                    exchange2 TEXT,
-                    price1 REAL,
-                    price2 REAL,
-                    profit_percent REAL,
-                    volume_24h REAL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS premium_users (
-                    user_id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    added_by_admin BOOLEAN DEFAULT TRUE,
-                    added_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    subscription_end DATE
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS license_keys (
-                     license_key TEXT PRIMARY KEY,
-                     user_id INTEGER,
-                     username TEXT,
-                     used_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                     gumroad_sale_id TEXT
-    )
-''')
-            conn.commit()
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                username VARCHAR(255),
+                subscription_end DATE,
+                is_premium BOOLEAN DEFAULT FALSE,
+                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS premium_users (
+                user_id BIGINT PRIMARY KEY REFERENCES users(user_id),
+                username VARCHAR(255),
+                added_by_admin BOOLEAN DEFAULT TRUE,
+                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                subscription_end DATE
+            )
+        """)
+    
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS arbitrage_data (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20),
+                exchange1 VARCHAR(50),
+                exchange2 VARCHAR(50),
+                price1 DECIMAL(20, 10),
+                price2 DECIMAL(20, 10),
+                profit_percent DECIMAL(10, 2),
+                volume_24h DECIMAL(30, 2),
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS license_keys (
+                license_key VARCHAR(100) PRIMARY KEY,
+                user_id BIGINT,
+                username VARCHAR(255),
+                used_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                gumroad_sale_id VARCHAR(100)
+            )
+        """)
+        self.db.close()
 
     
 

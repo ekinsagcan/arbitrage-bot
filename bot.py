@@ -151,6 +151,22 @@ class ArbitrageBot:
             'api_requests': 0,
             'concurrent_users': 0
         }
+        
+        self.problematic_coins = {
+            'LUNAUSDT': "Different networks between exchanges",
+            'LUNA2USDT': "Deposit/withdrawal suspended on some exchanges",
+            'KLVUSDT': "Deposit/withdrawal suspended",
+            # Add more coins as needed
+        }
+        
+        self.withdrawal_limitations = {
+            'huobi': {'LUNAUSDT': "Different network than Gate"},
+            'htx': {'LUNAUSDT': "Different network than Gate"},
+            'gate': {'LUNAUSDT': "Different network than HTX"},
+            # Add more exchange-specific limitations
+        }
+
+    
 
     async def get_cached_arbitrage_data(self, is_premium: bool = False):
         # Cache hit/miss sayacı
